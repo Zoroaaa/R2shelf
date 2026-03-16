@@ -121,6 +121,27 @@ app.post('/create', async (c) => {
   });
 });
 
+app.get('/list', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const tasks = await db.select().from(uploadTasks)
+    .where(eq(uploadTasks.userId, userId))
+    .all();
+
+  const activeTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'expired');
+  const now = new Date();
+  const validTasks = activeTasks.filter((t) => new Date(t.expiresAt) > now);
+
+  return c.json({
+    success: true,
+    data: validTasks.map((t) => ({
+      ...t,
+      uploadedParts: JSON.parse(t.uploadedParts || '[]'),
+    })),
+  });
+});
+
 app.get('/:taskId', async (c) => {
   const userId = c.get('userId')!;
   const taskId = c.req.param('taskId');
@@ -381,27 +402,6 @@ app.post('/abort', async (c) => {
     .where(eq(uploadTasks.id, taskId));
 
   return c.json({ success: true, data: { message: '上传已中止' } });
-});
-
-app.get('/list', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const tasks = await db.select().from(uploadTasks)
-    .where(eq(uploadTasks.userId, userId))
-    .all();
-
-  const activeTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'expired');
-  const now = new Date();
-  const validTasks = activeTasks.filter((t) => new Date(t.expiresAt) > now);
-
-  return c.json({
-    success: true,
-    data: validTasks.map((t) => ({
-      ...t,
-      uploadedParts: JSON.parse(t.uploadedParts || '[]'),
-    })),
-  });
 });
 
 app.delete('/:taskId', async (c) => {

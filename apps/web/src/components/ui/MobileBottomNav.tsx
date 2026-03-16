@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/auth';
 import {
   LayoutDashboard, FolderOpen, Share2, Settings,
   Upload, Plus, Menu, X, Trash2, Database,
-  LogOut, User, Download,
+  LogOut, User, Download, Shield,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -193,6 +193,19 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
                   </div>
                   <span className="text-xs text-muted-foreground">设置</span>
                 </NavLink>
+
+                {user?.role === 'admin' && (
+                  <NavLink
+                    to="/admin"
+                    onClick={() => setShowQuickActions(false)}
+                    className="flex flex-col items-center gap-1"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                      <Shield className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <span className="text-xs text-muted-foreground">管理</span>
+                  </NavLink>
+                )}
               </div>
             </div>
 

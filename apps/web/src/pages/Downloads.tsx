@@ -131,6 +131,25 @@ export default function Downloads() {
         </div>
       </div>
 
+      <Card className="bg-blue-500/5 border-blue-500/20">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <div className="space-y-2 text-sm">
+              <p className="font-medium text-blue-600 dark:text-blue-400">使用说明</p>
+              <ul className="text-muted-foreground space-y-1 list-disc list-inside">
+                <li>输入<strong>公开可访问的文件下载链接</strong>（直链）</li>
+                <li>支持的链接示例：
+                  <code className="mx-1 px-1.5 py-0.5 rounded bg-muted text-xs">https://example.com/file.zip</code>
+                </li>
+                <li>GitHub Release、软件官网直链、网盘公开分享链接等均可使用</li>
+                <li>不支持需要登录认证的链接或加密链接</li>
+              </ul>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {showCreateForm && (
         <Card>
           <CardHeader className="pb-4">
