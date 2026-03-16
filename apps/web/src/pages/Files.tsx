@@ -29,6 +29,7 @@ import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNa
 import { FilePreview } from '@/components/ui/FilePreview';
 import { RenameDialog } from '@/components/ui/RenameDialog';
 import { MoveFolderPicker } from '@/components/ui/MoveFolderPicker';
+import { FileTagsManager } from '@/components/ui/FileTagsManager';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
@@ -37,7 +38,7 @@ import {
   Search, X, Pencil, Eye, CheckSquare, Square, SortAsc, SortDesc,
   Image as ImageIcon, FolderInput, Database, MoreVertical,
   Copy, Scissors, Clipboard, RefreshCw, Columns, LayoutGrid,
-  CheckCircle2,
+  CheckCircle2, Tag,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import type { FileItem } from '@osshelf/shared';
@@ -179,6 +180,7 @@ export default function Files() {
   const [moveFile, setMoveFile] = useState<FileItem | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [galleryMode, setGalleryMode] = useState(false);
+  const [tagsFile, setTagsFile] = useState<FileItem | null>(null);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -413,6 +415,12 @@ export default function Files() {
         icon: <Share2 className="h-4 w-4" />,
         action: () => setShareFileId(file.id),
         disabled: file.isFolder,
+      },
+      {
+        id: 'tags',
+        label: '标签管理',
+        icon: <Tag className="h-4 w-4" />,
+        action: () => setTagsFile(file),
       },
       { id: 'divider2', label: '', divider: true },
       {
@@ -728,6 +736,26 @@ export default function Files() {
       {renameFile && <RenameDialog currentName={renameFile.name} isPending={renameMutation.isPending} onConfirm={(name) => renameMutation.mutate({ id: renameFile.id, name })} onCancel={() => setRenameFile(null)} />}
       {moveFile && <MoveFolderPicker excludeIds={[moveFile.id]} isPending={moveMutation.isPending} onConfirm={(targetParentId) => moveMutation.mutate({ id: moveFile.id, targetParentId })} onCancel={() => setMoveFile(null)} />}
       {previewFile && <FilePreview file={previewFile} token={token || ''} onClose={() => setPreviewFile(null)} onDownload={handleDownload} onShare={(id) => { setPreviewFile(null); setShareFileId(id); }} />}
+      
+      {tagsFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">标签管理</h2>
+              <button onClick={() => setTagsFile(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4 truncate">
+              文件: {tagsFile.name}
+            </p>
+            <FileTagsManager fileId={tagsFile.id} />
+            <div className="flex justify-end mt-4">
+              <Button variant="outline" onClick={() => setTagsFile(null)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-16 text-muted-foreground">加载中...</div>

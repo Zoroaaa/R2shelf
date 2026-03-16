@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/auth';
 import {
   LayoutDashboard, FolderOpen, Share2, Settings,
   Upload, Plus, Menu, X, Trash2, Database,
-  LogOut, User,
+  LogOut, User, Download,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
   { path: '/shares', label: '分享', icon: Share2, exact: false },
-  { path: '/buckets', label: '存储桶', icon: Database, exact: false },
+  { path: '/downloads', label: '下载', icon: Download, exact: false },
 ];
 
 interface MobileBottomNavProps {
@@ -146,6 +146,17 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
                 )}
                 
                 <NavLink
+                  to="/tasks"
+                  onClick={() => setShowQuickActions(false)}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                    <Upload className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <span className="text-xs text-muted-foreground">上传任务</span>
+                </NavLink>
+
+                <NavLink
                   to="/trash"
                   onClick={() => setShowQuickActions(false)}
                   className="flex flex-col items-center gap-1"
@@ -159,6 +170,17 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
                     )}
                   </div>
                   <span className="text-xs text-muted-foreground">回收站</span>
+                </NavLink>
+
+                <NavLink
+                  to="/buckets"
+                  onClick={() => setShowQuickActions(false)}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                    <Database className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <span className="text-xs text-muted-foreground">存储桶</span>
                 </NavLink>
 
                 <NavLink
