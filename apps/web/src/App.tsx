@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/auth';
 import MainLayout from './components/layouts/MainLayout';
@@ -16,12 +17,27 @@ import Tasks from './pages/Tasks';
 import Downloads from './pages/Downloads';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isInitialized } = useAuthStore();
+  
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function App() {
+  const initialize = useAuthStore((state) => state.initialize);
+  
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
   return (
     <Routes>
       {/* Auth */}

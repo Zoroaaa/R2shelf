@@ -16,7 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, shareApi, bucketsApi, PROVIDER_META, type StorageBucket, permissionsApi, searchApi } from '@/services/api';
+import { filesApi, shareApi, bucketsApi, PROVIDER_META, type StorageBucket, permissionsApi, searchApi, batchApi } from '@/services/api';
 import { presignUpload } from '@/services/presignUpload';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -42,7 +42,7 @@ import {
   Search, X, Pencil, Eye, CheckSquare, Square, SortAsc, SortDesc,
   Image as ImageIcon, FolderInput, Database, MoreVertical,
   Copy, Scissors, Clipboard, RefreshCw, Columns, LayoutGrid,
-  CheckCircle2, Tag, AlertTriangle, Shield, Settings,
+  CheckCircle2, Tag, AlertTriangle, Shield, Settings, SlidersHorizontal,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import type { FileItem } from '@osshelf/shared';
@@ -189,6 +189,15 @@ export default function Files() {
   const [permissionFile, setPermissionFile] = useState<FileItem | null>(null);
   const [recursiveSearch, setRecursiveSearch] = useState(false);
   const [folderSettingsFile, setFolderSettingsFile] = useState<FileItem | null>(null);
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [advancedConditions, setAdvancedConditions] = useState<Array<{
+    field: 'name' | 'mimeType' | 'size' | 'createdAt' | 'updatedAt' | 'tags';
+    operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
+    value: string | number | string[];
+  }>>([]);
+  const [advancedLogic, setAdvancedLogic] = useState<'and' | 'or'>('and');
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -258,6 +267,44 @@ export default function Files() {
     enabled: !!searchQuery && recursiveSearch,
   });
 
+  const { data: advancedSearchResults, isLoading: isAdvancedSearchLoading } = useQuery<FileItem[]>({
+    queryKey: ['advanced-search', advancedConditions, advancedLogic],
+    queryFn: async () => {
+      if (advancedConditions.length === 0) return [];
+      const res = await searchApi.advanced({
+        conditions: advancedConditions,
+        logic: advancedLogic,
+      });
+      return res.data.data?.items ?? [];
+    },
+    enabled: advancedConditions.length > 0 && showAdvancedSearch,
+  });
+
+  const handleSearchInput = useCallback(async (value: string) => {
+    setSearchInput(value);
+    setSearchQuery(value);
+    if (tagSearchQuery) setTagSearchQuery(null);
+    
+    if (value.length >= 2) {
+      try {
+        const res = await searchApi.suggestions({ q: value, type: 'name' });
+        setSearchSuggestions(res.data.data ?? []);
+        setShowSuggestions(true);
+      } catch {
+        setSearchSuggestions([]);
+      }
+    } else {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [tagSearchQuery]);
+
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    setSearchInput(suggestion);
+    setSearchQuery(suggestion);
+    setShowSuggestions(false);
+  }, []);
+
   const handleTagClick = useCallback((tagName: string) => {
     setTagSearchQuery(tagName);
     setSearchQuery(tagName);
@@ -284,15 +331,17 @@ export default function Files() {
 
   const displayFiles = tagSearchQuery
     ? (tagSearchResults ?? [])
-    : recursiveSearch && recursiveSearchResults
-      ? (recursiveSearchResults ?? [])
-      : [...files]
-          .filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-          .sort((a, b) => {
-            if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
-            const av = (a as any)[sortBy] ?? '', bv = (b as any)[sortBy] ?? '';
-            return sortOrder === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
-          });
+    : showAdvancedSearch && advancedConditions.length > 0
+      ? (advancedSearchResults ?? [])
+      : recursiveSearch && recursiveSearchResults
+        ? (recursiveSearchResults ?? [])
+        : [...files]
+            .filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+            .sort((a, b) => {
+              if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+              const av = (a as any)[sortBy] ?? '', bv = (b as any)[sortBy] ?? '';
+              return sortOrder === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+            });
 
   const imageFiles = displayFiles.filter((f) => f.mimeType?.startsWith('image/'));
   const hasImages = imageFiles.length > 0;
@@ -434,10 +483,66 @@ export default function Files() {
     else setPreviewFile(file);
   };
 
+  const batchDeleteMutation = useMutation({
+    mutationFn: (fileIds: string[]) => batchApi.delete(fileIds),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+      queryClient.invalidateQueries({ queryKey: ['trash'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      clearSelection();
+      const data = res.data.data;
+      toast({ 
+        title: '批量删除完成', 
+        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` 
+      });
+    },
+    onError: (e: any) => toast({ title: '批量删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+  });
+
+  const batchMoveMutation = useMutation({
+    mutationFn: ({ fileIds, targetParentId }: { fileIds: string[]; targetParentId: string | null }) =>
+      batchApi.move(fileIds, targetParentId),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      clearClipboard();
+      const data = res.data.data;
+      toast({ 
+        title: '批量移动完成', 
+        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` 
+      });
+    },
+    onError: (e: any) => toast({ title: '批量移动失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+  });
+
+  const batchCopyMutation = useMutation({
+    mutationFn: ({ fileIds, targetParentId }: { fileIds: string[]; targetParentId: string | null }) =>
+      batchApi.copy(fileIds, targetParentId),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      clearClipboard();
+      const data = res.data.data;
+      toast({ 
+        title: '批量复制完成', 
+        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` 
+      });
+    },
+    onError: (e: any) => toast({ title: '批量复制失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+  });
+
+  const handlePaste = useCallback(() => {
+    if (!clipboard || clipboard.files.length === 0) return;
+    const fileIds = clipboard.files.map(f => f.id);
+    if (clipboard.type === 'cut') {
+      batchMoveMutation.mutate({ fileIds, targetParentId: folderId || null });
+    } else {
+      batchCopyMutation.mutate({ fileIds, targetParentId: folderId || null });
+    }
+  }, [clipboard, folderId, batchMoveMutation, batchCopyMutation]);
+
   const handleBatchDelete = () => {
     if (!selectedFiles.length) return;
     if (!confirm(`确定将选中的 ${selectedFiles.length} 个项目移入回收站？`)) return;
-    selectedFiles.forEach((id) => deleteMutation.mutate(id));
+    batchDeleteMutation.mutate(selectedFiles);
   };
 
   const handleSort = (field: typeof sortBy) =>
@@ -584,15 +689,13 @@ export default function Files() {
           label: `粘贴 (${clipboard.files.length} 个项目)`,
           icon: <Clipboard className="h-4 w-4" />,
           shortcut: 'Ctrl+V',
-          action: () => {
-            toast({ title: '粘贴功能开发中' });
-          },
+          action: handlePaste,
         }
       );
     }
 
     return items;
-  }, [refetch, clipboard, toast, selectAll, displayFiles]);
+  }, [refetch, clipboard, toast, selectAll, displayFiles, handlePaste]);
 
   const handleContextMenu = (e: React.MouseEvent, file?: FileItem) => {
     if (file) {
@@ -687,19 +790,132 @@ export default function Files() {
             <input
               ref={searchInputRef}
               className={cn(
-                "pl-8 pr-8 h-9 w-40 sm:w-52 rounded-md border bg-background text-sm outline-none focus:ring-2 focus:ring-ring",
+                "pl-8 pr-16 h-9 w-40 sm:w-52 rounded-md border bg-background text-sm outline-none focus:ring-2 focus:ring-ring",
                 tagSearchQuery && "border-primary ring-2 ring-primary/20"
               )}
               placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : "搜索文件..."}
               value={searchInput}
-              onChange={(e) => { setSearchInput(e.target.value); setSearchQuery(e.target.value); if (tagSearchQuery) setTagSearchQuery(null); }}
+              onChange={(e) => handleSearchInput(e.target.value)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              onFocus={() => searchInput.length >= 2 && searchSuggestions.length > 0 && setShowSuggestions(true)}
             />
             {(searchInput || tagSearchQuery) && (
-              <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => { setSearchInput(''); setSearchQuery(''); setTagSearchQuery(null); }}>
+              <button className="absolute right-9 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => { setSearchInput(''); setSearchQuery(''); setTagSearchQuery(null); setShowSuggestions(false); }}>
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
+            <button
+              className={cn(
+                "absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded transition-colors",
+                showAdvancedSearch ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+              title="高级搜索"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+            </button>
+            {showSuggestions && searchSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-48 overflow-auto">
+                {searchSuggestions.map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors"
+                    onMouseDown={() => handleSuggestionClick(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+          
+          {showAdvancedSearch && (
+            <div className="flex items-center gap-2 p-2 bg-muted/30 border rounded-md">
+              <select
+                className="h-7 px-2 text-xs border rounded bg-background"
+                value={advancedLogic}
+                onChange={(e) => setAdvancedLogic(e.target.value as 'and' | 'or')}
+              >
+                <option value="and">且</option>
+                <option value="or">或</option>
+              </select>
+              <button
+                className="h-7 px-2 text-xs border rounded bg-background hover:bg-muted/50"
+                onClick={() => {
+                  setAdvancedConditions([...advancedConditions, { field: 'name', operator: 'contains', value: '' }]);
+                }}
+              >
+                + 添加条件
+              </button>
+              {advancedConditions.length > 0 && (
+                <button
+                  className="h-7 px-2 text-xs border rounded bg-background hover:bg-muted/50"
+                  onClick={() => setAdvancedConditions([])}
+                >
+                  清除
+                </button>
+              )}
+            </div>
+          )}
+          
+          {advancedConditions.map((condition, idx) => (
+            <div key={idx} className="flex items-center gap-1 p-1.5 bg-muted/20 border rounded text-xs">
+              <select
+                className="h-6 px-1.5 border rounded bg-background"
+                value={condition.field}
+                onChange={(e) => {
+                  const newConditions = [...advancedConditions];
+                  newConditions[idx] = { ...condition, field: e.target.value as any };
+                  setAdvancedConditions(newConditions);
+                }}
+              >
+                <option value="name">文件名</option>
+                <option value="mimeType">类型</option>
+                <option value="size">大小</option>
+                <option value="createdAt">创建时间</option>
+                <option value="updatedAt">修改时间</option>
+                <option value="tags">标签</option>
+              </select>
+              <select
+                className="h-6 px-1.5 border rounded bg-background"
+                value={condition.operator}
+                onChange={(e) => {
+                  const newConditions = [...advancedConditions];
+                  newConditions[idx] = { ...condition, operator: e.target.value as any };
+                  setAdvancedConditions(newConditions);
+                }}
+              >
+                <option value="contains">包含</option>
+                <option value="equals">等于</option>
+                <option value="startsWith">开头是</option>
+                <option value="endsWith">结尾是</option>
+                {condition.field === 'size' && (
+                  <>
+                    <option value="gt">大于</option>
+                    <option value="lt">小于</option>
+                  </>
+                )}
+              </select>
+              <input
+                className="h-6 w-24 px-1.5 border rounded bg-background"
+                value={condition.value as string}
+                onChange={(e) => {
+                  const newConditions = [...advancedConditions];
+                  newConditions[idx] = { ...condition, value: e.target.value };
+                  setAdvancedConditions(newConditions);
+                }}
+                placeholder="输入值..."
+              />
+              <button
+                className="h-6 w-6 flex items-center justify-center hover:bg-muted/50 rounded"
+                onClick={() => {
+                  setAdvancedConditions(advancedConditions.filter((_, i) => i !== idx));
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
           
           {tagSearchQuery && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-md text-sm">
@@ -793,7 +1009,7 @@ export default function Files() {
           <Button variant="outline" size="sm" onClick={clearSelection}>
             <X className="h-3.5 w-3.5 mr-1" />取消
           </Button>
-          <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={deleteMutation.isPending}>
+          <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={batchDeleteMutation.isPending}>
             <Trash2 className="h-3.5 w-3.5 mr-1" />批量删除
           </Button>
         </div>

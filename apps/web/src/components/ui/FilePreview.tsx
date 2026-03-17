@@ -1,13 +1,25 @@
 import { useEffect, useState, useRef } from 'react';
-import { X, Download, Share2, FileText, Volume2 } from 'lucide-react';
+import { X, Download, Share2, FileText, Volume2, FileCode, FileSpreadsheet, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
-import { filesApi } from '@/services/api';
+import { filesApi, previewApi } from '@/services/api';
 import { getPresignedPreviewUrl } from '@/services/presignUpload';
 import { formatBytes, formatDate } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/lib/utils';
+
+interface PreviewInfo {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  previewable: boolean;
+  previewType: string;
+  language: string | null;
+  extension: string;
+  canPreview: boolean;
+}
 
 interface FilePreviewProps {
   file: FileItem;
@@ -21,6 +33,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
+  const [officeContent, setOfficeContent] = useState<{ base64Content: string; mimeType: string } | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const canPreview = isPreviewable(file.mimeType);
@@ -28,13 +42,27 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isVideo = file.mimeType?.startsWith('video/');
   const isAudio = file.mimeType?.startsWith('audio/');
   const isPdf = file.mimeType === 'application/pdf';
-  const isText = file.mimeType?.startsWith('text/');
+  const isText = file.mimeType?.startsWith('text/') || 
+                 file.mimeType === 'application/json' || 
+                 file.mimeType === 'application/xml' ||
+                 previewInfo?.previewType === 'code';
+  const isOffice = previewInfo?.previewType === 'office';
 
   useEffect(() => {
     let cancelled = false;
     setResolvedUrl(null);
     setLoadError(false);
     setTextContent(null);
+    setPreviewInfo(null);
+    setOfficeContent(null);
+
+    previewApi.getInfo(file.id)
+      .then((res) => {
+        if (!cancelled && res.data.data) {
+          setPreviewInfo(res.data.data);
+        }
+      })
+      .catch(() => {});
 
     getPresignedPreviewUrl(file.id).then(({ url }) => {
       if (!cancelled) setResolvedUrl(url);
@@ -49,17 +77,49 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   useEffect(() => {
     if (!isText || !canPreview || !resolvedUrl) return;
-    fetch(resolvedUrl)
-      .then((r) => r.text())
-      .then((t) => setTextContent(t))
+    
+    previewApi.getRaw(file.id)
+      .then((res) => {
+        if (res.data.data?.content) {
+          setTextContent(res.data.data.content);
+        }
+      })
+      .catch(() => {
+        fetch(resolvedUrl)
+          .then((r) => r.text())
+          .then((t) => setTextContent(t))
+          .catch(() => setLoadError(true));
+      });
+  }, [file.id, resolvedUrl, isText, canPreview]);
+
+  useEffect(() => {
+    if (!isOffice || !canPreview) return;
+    
+    previewApi.getOffice(file.id)
+      .then((res) => {
+        if (res.data.data) {
+          setOfficeContent({
+            base64Content: res.data.data.base64Content,
+            mimeType: res.data.data.mimeType || file.mimeType || '',
+          });
+        }
+      })
       .catch(() => setLoadError(true));
-  }, [resolvedUrl, isText, canPreview]);
+  }, [file.id, isOffice, canPreview]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
+
+  const getOfficeIcon = () => {
+    const mimeType = file.mimeType || '';
+    if (mimeType.includes('word') || mimeType.includes('document')) return <FileText className="h-6 w-6" />;
+    if (mimeType.includes('excel') || mimeType.includes('sheet')) return <FileSpreadsheet className="h-6 w-6" />;
+    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return <Presentation className="h-6 w-6" />;
+    return <FileText className="h-6 w-6" />;
+  };
 
   return (
     <div
@@ -87,6 +147,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             <p className="font-medium truncate text-sm">{file.name}</p>
             <p className="text-xs text-muted-foreground">
               {formatBytes(file.size)} · {formatDate(file.updatedAt)}
+              {previewInfo?.language && <span className="ml-2 opacity-60">({previewInfo.language})</span>}
             </p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -157,12 +218,33 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           ) : isText ? (
             <div className="w-full h-full overflow-auto p-4">
               {textContent !== null ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap text-foreground/80 leading-relaxed">
+                <pre className={cn(
+                  "text-xs font-mono whitespace-pre-wrap leading-relaxed",
+                  previewInfo?.previewType === 'code' ? 'text-green-600 dark:text-green-400' : 'text-foreground/80'
+                )}>
                   {textContent}
                 </pre>
               ) : (
                 <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
               )}
+            </div>
+          ) : isOffice && officeContent ? (
+            <div className="w-full h-full flex flex-col items-center justify-center p-8 space-y-4">
+              <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
+                {getOfficeIcon()}
+              </div>
+              <div className="text-center">
+                <p className="font-medium">{file.name}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {file.mimeType?.includes('word') ? 'Word 文档' :
+                   file.mimeType?.includes('excel') ? 'Excel 表格' :
+                   file.mimeType?.includes('powerpoint') ? 'PowerPoint 演示文稿' : 'Office 文档'}
+                </p>
+              </div>
+              <Button onClick={() => onDownload(file)}>
+                <Download className="h-4 w-4 mr-2" />
+                下载查看
+              </Button>
             </div>
           ) : null}
         </div>

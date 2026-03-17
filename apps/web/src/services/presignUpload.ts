@@ -339,34 +339,6 @@ async function proxyUploadPartForTask(
   return res.data.data.etag;
 }
 
-// ── Proxy upload part (for CORS-restricted storage) ─────────────────────────
-
-async function proxyUploadPart(
-  r2Key: string,
-  uploadId: string,
-  partNumber: number,
-  chunk: Blob,
-  bucketId: string | undefined,
-): Promise<string> {
-  const formData = new FormData();
-  formData.append('r2Key', r2Key);
-  formData.append('uploadId', uploadId);
-  formData.append('partNumber', String(partNumber));
-  formData.append('chunk', chunk);
-  if (bucketId) formData.append('bucketId', bucketId);
-
-  const res = await axios.post<{ success: boolean; data: { partNumber: number; etag: string }; error?: { message: string } }>(
-    `${API_BASE}/api/presign/multipart/part-proxy`,
-    formData,
-    { headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' } },
-  );
-
-  if (!res.data.success) {
-    throw new Error(res.data.error?.message || '代理分片上传失败');
-  }
-  return res.data.data.etag;
-}
-
 // ── Low-level HTTP helpers ─────────────────────────────────────────────────
 
 /**

@@ -152,6 +152,10 @@ export const shareApi = {
     `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/download${
       password ? `?password=${encodeURIComponent(password)}` : ''
     }`,
+  previewUrl: (id: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/preview${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
 };
 
 export interface StorageBucket {
@@ -328,59 +332,6 @@ export const adminApi = {
     api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', { params }),
 };
 
-export interface PresignUploadResponse {
-  useProxy?: boolean;
-  uploadUrl?: string;
-  fileId?: string;
-  r2Key?: string;
-  bucketId?: string;
-  expiresIn?: number;
-}
-
-export interface PresignMultipartInitResponse {
-  useProxy?: boolean;
-  uploadId?: string;
-  fileId?: string;
-  r2Key?: string;
-  bucketId?: string;
-  firstPartUrl?: string;
-}
-
-export interface PresignPartResponse {
-  partUrl: string;
-  partNumber: number;
-}
-
-export interface PresignDownloadResponse {
-  useProxy?: boolean;
-  proxyUrl?: string;
-  downloadUrl?: string;
-  previewUrl?: string;
-  fileName?: string;
-  mimeType?: string;
-  size?: number;
-  expiresIn?: number;
-}
-
-export const presignApi = {
-  upload: (data: { fileName: string; fileSize: number; mimeType?: string; parentId?: string | null; bucketId?: string | null }) =>
-    api.post<ApiResponse<PresignUploadResponse>>('/api/presign/upload', data),
-  confirm: (data: { fileId: string; fileName: string; fileSize: number; mimeType?: string; parentId?: string | null; r2Key: string; bucketId?: string | null }) =>
-    api.post<ApiResponse<UploadedFile>>('/api/presign/confirm', data),
-  multipartInit: (data: { fileName: string; fileSize: number; mimeType?: string; parentId?: string | null; bucketId?: string | null }) =>
-    api.post<ApiResponse<PresignMultipartInitResponse>>('/api/presign/multipart/init', data),
-  multipartPart: (data: { r2Key: string; uploadId: string; partNumber: number; bucketId?: string | null }) =>
-    api.post<ApiResponse<PresignPartResponse>>('/api/presign/multipart/part', data),
-  multipartComplete: (data: { fileId: string; fileName: string; fileSize: number; mimeType?: string; parentId?: string | null; r2Key: string; uploadId: string; bucketId?: string | null; parts: Array<{ partNumber: number; etag: string }> }) =>
-    api.post<ApiResponse<UploadedFile>>('/api/presign/multipart/complete', data),
-  multipartAbort: (data: { r2Key: string; uploadId: string; bucketId?: string | null }) =>
-    api.post<ApiResponse<{ message: string }>>('/api/presign/multipart/abort', data),
-  download: (fileId: string) =>
-    api.get<ApiResponse<PresignDownloadResponse>>(`/api/presign/download/${fileId}`),
-  preview: (fileId: string) =>
-    api.get<ApiResponse<PresignDownloadResponse>>(`/api/presign/preview/${fileId}`),
-};
-
 export interface UploadedFile {
   id: string;
   name: string;
@@ -490,6 +441,8 @@ export const searchApi = {
     api.post<ApiResponse<{ items: FileItem[]; total: number; page: number; limit: number; totalPages: number }>>('/api/search/advanced', data),
   suggestions: (params: { q: string; type: 'name' | 'tags' | 'mime' }) =>
     api.get<ApiResponse<string[]>>('/api/search/suggestions', { params }),
+  recent: () =>
+    api.get<ApiResponse<FileItem[]>>('/api/search/recent'),
 };
 
 export const permissionsApi = {
