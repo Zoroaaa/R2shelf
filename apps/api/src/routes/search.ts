@@ -1,3 +1,14 @@
+/**
+ * search.ts
+ * 文件搜索路由
+ * 
+ * 功能:
+ * - 关键词搜索
+ * - 高级条件搜索
+ * - 搜索建议
+ * - 最近搜索记录
+ */
+
 import { Hono } from 'hono';
 import { eq, and, isNull, like, gte, lte, inArray, or, SQL } from 'drizzle-orm';
 import { getDb, files, fileTags, storageBuckets } from '../db';

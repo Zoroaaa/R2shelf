@@ -1,3 +1,14 @@
+/**
+ * tasks.ts
+ * 上传任务路由
+ * 
+ * 功能:
+ * - 创建上传任务
+ * - 分片上传管理
+ * - 任务状态查询
+ * - 暂停/恢复/取消
+ */
+
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, uploadTasks, users, storageBuckets } from '../db';

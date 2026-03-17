@@ -1,3 +1,13 @@
+/**
+ * Login.tsx
+ * 登录页面
+ * 
+ * 功能:
+ * - 用户登录
+ * - 登录失败锁定提示
+ * - 跳转注册页面
+ */
+
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';

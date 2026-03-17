@@ -1,3 +1,16 @@
+/**
+ * index.ts
+ * 共享类型定义
+ * 
+ * 功能:
+ * - 用户类型定义
+ * - 文件类型定义
+ * - API响应类型
+ * - 常量定义
+ * 
+ * 前后端共用，确保类型一致性
+ */
+
 export interface User {
   id: string;
   email: string;

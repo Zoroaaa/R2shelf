@@ -1,3 +1,13 @@
+/**
+ * App.tsx
+ * 应用入口组件
+ * 
+ * 功能:
+ * - 路由配置
+ * - 认证状态初始化
+ * - 私有路由保护
+ */
+
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/auth';

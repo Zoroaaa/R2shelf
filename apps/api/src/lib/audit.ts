@@ -1,3 +1,13 @@
+/**
+ * audit.ts
+ * 审计日志工具
+ * 
+ * 功能:
+ * - 记录用户操作日志
+ * - 支持多种操作类型
+ * - 记录IP地址和User-Agent
+ */
+
 import { getDb, auditLogs } from '../db';
 import type { Env } from '../types/env';
 import type { AuditAction } from '@osshelf/shared';

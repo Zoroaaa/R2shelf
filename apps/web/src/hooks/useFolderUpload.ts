@@ -1,10 +1,14 @@
 /**
- * useFolderUpload
- *
- * Handles folder drag-and-drop by reading webkitRelativePath to reconstruct
- * the directory tree and creating folders in the correct order before uploading.
- *
- * Usage:
+ * useFolderUpload.ts
+ * 文件夹上传 Hook
+ * 
+ * 功能:
+ * - 支持拖拽整个文件夹
+ * - 解析webkitRelativePath重建目录结构
+ * - 按正确顺序创建文件夹
+ * - 批量上传文件
+ * 
+ * 用法:
  *   const { uploadFolderEntries } = useFolderUpload({ currentFolderId, onProgress, onDone });
  *   <div onDrop={(e) => uploadFolderEntries(e.dataTransfer.items)} />
  */

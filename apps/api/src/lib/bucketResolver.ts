@@ -1,12 +1,18 @@
 /**
  * bucketResolver.ts
- *
- * Given a file/folder record, resolves which StorageBucket config to use.
- * Priority:
- *   1. File's own bucketId (directly assigned)
- *   2. Walk up parent chain until a folder with bucketId is found
- *   3. User's default active bucket
- *   4. Legacy: c.env.FILES (R2 direct binding, backwards compat)
+ * 存储桶解析器
+ * 
+ * 功能:
+ * - 根据文件/文件夹解析存储桶配置
+ * - 支持层级继承（文件->父文件夹->用户默认）
+ * - 存储桶配额检查
+ * - 存储桶统计更新
+ * 
+ * 优先级:
+ * 1. 文件自身的bucketId
+ * 2. 向上查找父文件夹的bucketId
+ * 3. 用户默认存储桶
+ * 4. 兼容模式：环境变量FILES绑定
  */
 
 import { eq, and, isNull } from 'drizzle-orm';

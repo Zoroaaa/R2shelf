@@ -1,3 +1,14 @@
+/**
+ * permissions.ts
+ * 文件权限与标签路由
+ * 
+ * 功能:
+ * - 文件权限授予与撤销
+ * - 权限查询与检查
+ * - 文件标签管理
+ * - 批量标签操作
+ */
+
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, fileTags } from '../db';

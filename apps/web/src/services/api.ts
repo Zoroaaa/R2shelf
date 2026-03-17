@@ -1,3 +1,14 @@
+/**
+ * api.ts
+ * API服务层
+ * 
+ * 功能:
+ * - 封装所有后端API调用
+ * - 统一请求/响应处理
+ * - 自动注入认证令牌
+ * - 错误处理与重试
+ */
+
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import type {

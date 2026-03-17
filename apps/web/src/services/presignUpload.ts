@@ -1,24 +1,18 @@
 /**
- * presignUpload.ts — Direct-to-S3 upload service (Phase 5 P1)
- *
- * Strategy
- * ────────
- * 1. For files ≤ MULTIPART_THRESHOLD (100 MB):
- *    a. POST /api/presign/upload  → get a presigned PUT URL
- *    b. PUT directly to the S3 URL with XHR (for progress tracking)
- *    c. POST /api/presign/confirm → write DB record
- *    d. If step (a) returns { useProxy: true }, fall back to legacy /api/files/upload
- *
- * 2. For files > MULTIPART_THRESHOLD:
- *    a. POST /api/presign/multipart/init   → { uploadId, fileId, r2Key, firstPartUrl }
- *    b. For each PART_SIZE chunk:
- *         POST /api/presign/multipart/part → { partUrl }
- *         PUT chunk to partUrl
- *    c. POST /api/presign/multipart/complete → finalize
- *    d. On any error: POST /api/presign/multipart/abort (best-effort)
- *
- * The caller always gets the same `FileItem`-shaped object back regardless
- * of which path was taken.
+ * presignUpload.ts
+ * 预签名上传服务
+ * 
+ * 功能:
+ * - 小文件直接上传（≤100MB）
+ * - 大文件分片上传（>100MB）
+ * - 上传进度跟踪
+ * - 断点续传支持
+ * - CORS代理回退
+ * 
+ * 上传策略:
+ * 1. 小文件：获取预签名URL -> 直接PUT到S3 -> 确认上传
+ * 2. 大文件：初始化分片 -> 逐片上传 -> 完成上传
+ * 3. 若S3不支持CORS，自动回退到服务器代理模式
  */
 
 import axios from 'axios';

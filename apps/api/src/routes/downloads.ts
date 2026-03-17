@@ -1,3 +1,14 @@
+/**
+ * downloads.ts
+ * 离线下载路由
+ * 
+ * 功能:
+ * - 创建离线下载任务
+ * - 任务状态管理
+ * - 暂停/恢复/重试
+ * - 任务清理
+ */
+
 import { Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
 import { getDb, downloadTasks, users, files, storageBuckets } from '../db';

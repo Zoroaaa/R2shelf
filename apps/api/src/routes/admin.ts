@@ -1,25 +1,14 @@
 /**
- * admin.ts — Admin-only API (Phase 5 P1)
- *
- * All routes require role = 'admin'.
- *
- * User management
- * ───────────────
- *  GET    /api/admin/users               list all users
- *  GET    /api/admin/users/:id           get single user
- *  PATCH  /api/admin/users/:id           update quota / role / name
- *  DELETE /api/admin/users/:id           delete user account
- *
- * Registration control
- * ────────────────────
- *  GET    /api/admin/registration        get current config
- *  PUT    /api/admin/registration        update open/closed + invite codes
- *  POST   /api/admin/registration/codes  generate invite code(s)
- *  DELETE /api/admin/registration/codes/:code  revoke a code
- *
- * System stats
- * ────────────
- *  GET    /api/admin/stats               global storage + user summary
+ * admin.ts
+ * 管理员路由
+ * 
+ * 功能:
+ * - 用户管理（列表、查询、禁用、删除）
+ * - 注册配置管理
+ * - 邀请码管理
+ * - 系统统计与审计日志
+ * 
+ * 所有接口需要管理员权限
  */
 
 import { Hono } from 'hono';

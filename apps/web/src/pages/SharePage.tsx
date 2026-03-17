@@ -1,3 +1,14 @@
+/**
+ * SharePage.tsx
+ * 公开分享页面
+ * 
+ * 功能:
+ * - 访问分享链接
+ * - 密码验证
+ * - 预览分享文件
+ * - 下载分享文件
+ */
+
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';

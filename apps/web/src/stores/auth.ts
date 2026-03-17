@@ -1,3 +1,14 @@
+/**
+ * auth.ts
+ * 认证状态管理 Store
+ * 
+ * 功能:
+ * - 用户登录状态管理
+ * - 令牌存储与验证
+ * - 自动恢复登录状态
+ * - 设备管理
+ */
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@osshelf/shared';

@@ -1,3 +1,14 @@
+/**
+ * cron.ts
+ * 定时任务路由
+ * 
+ * 功能:
+ * - 回收站自动清理
+ * - 会话自动清理
+ * - 分享链接过期清理
+ * - 全量清理任务
+ */
+
 import { Hono } from 'hono';
 import { eq, and, isNotNull, lt, sql } from 'drizzle-orm';
 import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts } from '../db';

@@ -1,3 +1,16 @@
+/**
+ * batch.ts
+ * 批量操作路由
+ * 
+ * 功能:
+ * - 批量删除文件
+ * - 批量移动文件
+ * - 批量复制文件
+ * - 批量重命名
+ * - 批量永久删除
+ * - 批量恢复
+ */
+
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';

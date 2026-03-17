@@ -1,3 +1,15 @@
+/**
+ * preview.ts
+ * 文件预览路由
+ * 
+ * 功能:
+ * - 获取预览信息（类型、语言等）
+ * - 获取原始文本内容
+ * - 流媒体预览
+ * - 缩略图生成
+ * - Office文档预览
+ */
+
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';

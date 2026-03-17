@@ -1,10 +1,12 @@
 /**
- * buckets.ts — Storage Bucket Management API
- *
- * Supports multi-vendor, multi-bucket configuration.
- * Credentials are stored encrypted in D1.
- * Compatible providers: Cloudflare R2, AWS S3, Aliyun OSS, Tencent COS,
- *   Huawei OBS, Backblaze B2, MinIO, and any S3-compatible endpoint.
+ * buckets.ts
+ * 存储桶管理路由
+ * 
+ * 功能:
+ * - 多厂商存储桶配置（R2、S3、OSS、COS、OBS、B2、MinIO等）
+ * - 存储桶增删改查
+ * - 存储桶测试与切换
+ * - 凭证加密存储
  */
 
 import { Hono } from 'hono';

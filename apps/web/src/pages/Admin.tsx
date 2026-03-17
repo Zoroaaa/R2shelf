@@ -1,3 +1,14 @@
+/**
+ * Admin.tsx
+ * 管理员面板页面
+ * 
+ * 功能:
+ * - 用户管理（列表、禁用、删除）
+ * - 注册配置管理
+ * - 邀请码管理
+ * - 系统统计与审计日志
+ */
+
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type AdminUser, type AdminStats, type RegistrationConfig } from '@/services/api';

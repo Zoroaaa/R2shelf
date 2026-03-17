@@ -1,3 +1,14 @@
+/**
+ * index.ts
+ * 工具函数集合
+ * 
+ * 功能:
+ * - 类名合并（cn）
+ * - 字节格式化
+ * - 日期格式化
+ * - 文件大小计算
+ */
+
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 

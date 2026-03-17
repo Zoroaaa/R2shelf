@@ -1,3 +1,13 @@
+/**
+ * Register.tsx
+ * 注册页面
+ * 
+ * 功能:
+ * - 用户注册
+ * - 邀请码验证
+ * - 注册配置检查
+ */
+
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';

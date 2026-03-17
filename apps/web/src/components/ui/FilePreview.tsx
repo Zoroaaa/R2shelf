@@ -1,3 +1,15 @@
+/**
+ * FilePreview.tsx
+ * 文件预览组件
+ * 
+ * 功能:
+ * - 图片/视频/音频预览
+ * - PDF文档预览
+ * - 文本/代码预览
+ * - Office文档预览
+ * - 预览信息展示
+ */
+
 import { useEffect, useState, useRef } from 'react';
 import { X, Download, Share2, FileText, Volume2, FileCode, FileSpreadsheet, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';

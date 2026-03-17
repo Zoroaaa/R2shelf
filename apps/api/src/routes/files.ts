@@ -1,3 +1,14 @@
+/**
+ * files.ts
+ * 文件管理路由
+ * 
+ * 功能:
+ * - 文件/文件夹的增删改查
+ * - 文件上传与下载
+ * - 回收站管理
+ * - 文件预览与缩略图
+ */
+
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, like } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';

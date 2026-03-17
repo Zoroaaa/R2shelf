@@ -1,3 +1,14 @@
+/**
+ * share.ts
+ * 文件分享路由
+ * 
+ * 功能:
+ * - 创建分享链接
+ * - 分享权限管理
+ * - 分享文件预览与下载
+ * - 密码保护与访问限制
+ */
+
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, files, shares } from '../db';

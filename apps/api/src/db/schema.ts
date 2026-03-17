@@ -1,3 +1,13 @@
+/**
+ * schema.ts
+ * 数据库表结构定义
+ * 
+ * 功能:
+ * - 定义所有数据库表结构
+ * - 定义表索引和约束
+ * - 使用Drizzle ORM的SQLite适配器
+ */
+
 import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {

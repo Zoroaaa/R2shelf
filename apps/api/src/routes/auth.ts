@@ -1,3 +1,14 @@
+/**
+ * auth.ts
+ * 用户认证路由
+ * 
+ * 功能:
+ * - 用户注册与登录
+ * - 登录失败锁定保护
+ * - 设备管理与会话控制
+ * - 用户信息查询与更新
+ */
+
 import { Hono } from 'hono';
 import { eq, and, gt, desc } from 'drizzle-orm';
 import { getDb, users, loginAttempts, userDevices } from '../db';

@@ -1,3 +1,13 @@
+/**
+ * index.ts
+ * API服务入口文件
+ * 
+ * 功能:
+ * - 注册所有API路由
+ * - 配置中间件（CORS、日志、安全头）
+ * - 全局错误处理
+ */
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';

@@ -1,28 +1,23 @@
 /**
- * presign.ts — Presigned URL endpoints (Phase 5 P1)
- *
- * Generates short-lived presigned URLs so the browser can upload / download
- * directly to/from the object storage without the Worker acting as a proxy.
- *
- * Endpoints
- * ─────────
- *  POST /api/presign/upload          → { uploadUrl, fileId, r2Key, bucketId? }
- *  POST /api/presign/multipart/init  → { uploadId, fileId, r2Key, bucketId? }
- *  POST /api/presign/multipart/part  → { partUrl }
- *  POST /api/presign/multipart/complete → triggers CompleteMultipartUpload + DB record
- *  POST /api/presign/multipart/abort → aborts an in-progress multipart upload
- *  GET  /api/presign/download/:id    → { downloadUrl }
- *  GET  /api/presign/preview/:id     → { previewUrl }
- *
- * Design notes
- * ─────────────
- * - PUT presigns: the browser calls the URL directly. On success it calls
- *   POST /api/presign/confirm to write the DB record.
- * - Multipart: browser gets part URLs, uploads chunks, then calls /complete
- *   which writes the DB record + bucket stats.
- * - R2 binding fallback: when no S3 bucket config is found the endpoints
- *   fall back to the old Worker-proxy flow (returns { useProxy: true }).
- *   The frontend falls back to the original upload/download routes.
+ * presign.ts
+ * 预签名URL路由
+ * 
+ * 功能:
+ * - 生成预签名上传URL
+ * - 生成预签名下载URL
+ * - 分片上传初始化与管理
+ * - 上传确认与完成
+ * 
+ * 浏览器直接与对象存储交互，无需服务器代理
+ * 
+ * 端点:
+ * - POST /api/presign/upload - 获取上传URL
+ * - POST /api/presign/multipart/init - 初始化分片上传
+ * - POST /api/presign/multipart/part - 获取分片上传URL
+ * - POST /api/presign/multipart/complete - 完成分片上传
+ * - POST /api/presign/multipart/abort - 取消分片上传
+ * - GET /api/presign/download/:id - 获取下载URL
+ * - GET /api/presign/preview/:id - 获取预览URL
  */
 
 import { Hono } from 'hono';

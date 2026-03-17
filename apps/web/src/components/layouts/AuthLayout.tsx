@@ -1,3 +1,13 @@
+/**
+ * AuthLayout.tsx
+ * 认证页面布局组件
+ * 
+ * 功能:
+ * - 登录/注册页面布局
+ * - 居中卡片样式
+ * - 渐变背景
+ */
+
 import { Outlet } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 

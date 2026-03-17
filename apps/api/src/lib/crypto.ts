@@ -1,6 +1,13 @@
 /**
- * Workers-compatible JWT and password hashing utilities.
- * Replaces jsonwebtoken + bcryptjs which don't work in the Workers runtime.
+ * crypto.ts
+ * 加密工具库
+ * 
+ * 功能:
+ * - JWT令牌生成与验证
+ * - 密码哈希与验证
+ * - 存储凭证加密与解密
+ * 
+ * 兼容Cloudflare Workers运行时
  */
 
 // ── JWT ──────────────────────────────────────────────────────────────────────

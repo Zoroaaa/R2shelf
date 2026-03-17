@@ -1,3 +1,14 @@
+/**
+ * webdav.ts
+ * WebDAV协议路由
+ * 
+ * 功能:
+ * - WebDAV协议完整实现
+ * - 支持Windows/macOS/Linux挂载
+ * - 文件读写与目录管理
+ * - 锁定与解锁
+ */
+
 import { Hono, Context } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';

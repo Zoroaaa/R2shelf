@@ -1,3 +1,13 @@
+/**
+ * BreadcrumbNav.tsx
+ * 面包屑导航组件
+ * 
+ * 功能:
+ * - 显示当前路径
+ * - 支持点击跳转
+ * - 响应式布局
+ */
+
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';

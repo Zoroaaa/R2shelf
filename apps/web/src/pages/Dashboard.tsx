@@ -1,3 +1,14 @@
+/**
+ * Dashboard.tsx
+ * 仪表盘页面
+ * 
+ * 功能:
+ * - 存储空间统计
+ * - 最近文件列表
+ * - 快捷操作入口
+ * - 系统状态概览
+ */
+
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/services/api';

@@ -1,3 +1,14 @@
+/**
+ * Trash.tsx
+ * 回收站页面
+ * 
+ * 功能:
+ * - 查看已删除文件
+ * - 恢复文件
+ * - 永久删除文件
+ * - 清空回收站
+ */
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/button';

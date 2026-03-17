@@ -1,5 +1,12 @@
 /**
- * Buckets.tsx — Multi-vendor storage bucket management page
+ * Buckets.tsx
+ * 存储桶管理页面
+ * 
+ * 功能:
+ * - 多厂商存储桶配置
+ * - 存储桶增删改查
+ * - 存储桶测试与切换
+ * - 存储桶配额设置
  */
 
 import { useState, useEffect } from 'react';

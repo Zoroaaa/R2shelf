@@ -1,3 +1,13 @@
+/**
+ * error.ts
+ * 错误处理中间件
+ * 
+ * 功能:
+ * - 全局异常捕获
+ * - 统一错误响应格式
+ * - 错误日志记录
+ */
+
 import type { MiddlewareHandler } from 'hono';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';

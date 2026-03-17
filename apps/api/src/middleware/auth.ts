@@ -1,3 +1,13 @@
+/**
+ * auth.ts
+ * 认证中间件
+ * 
+ * 功能:
+ * - JWT令牌验证
+ * - 用户身份注入
+ * - 权限检查
+ */
+
 import type { MiddlewareHandler } from 'hono';
 import { verifyJWT } from '../lib/crypto';
 import { ERROR_CODES } from '@osshelf/shared';

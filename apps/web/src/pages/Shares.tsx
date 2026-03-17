@@ -1,3 +1,14 @@
+/**
+ * Shares.tsx
+ * 分享管理页面
+ * 
+ * 功能:
+ * - 查看分享列表
+ * - 创建分享链接
+ * - 删除分享
+ * - 分享状态管理
+ */
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { shareApi } from '@/services/api';
 import { formatBytes, formatDate } from '@/utils';

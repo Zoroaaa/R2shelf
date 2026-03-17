@@ -1,9 +1,14 @@
 /**
- * s3client.ts — Universal S3-compatible storage client
- *
- * Runs entirely inside Cloudflare Workers (no Node.js SDK).
- * Implements AWS Signature V4 for all S3-compatible providers:
- * R2, AWS S3, Aliyun OSS, Tencent COS, Huawei OBS, Backblaze B2, MinIO, custom.
+ * s3client.ts
+ * S3兼容存储客户端
+ * 
+ * 功能:
+ * - 支持多种S3兼容存储（R2、S3、OSS、COS、OBS、B2、MinIO等）
+ * - AWS Signature V4签名实现
+ * - 文件上传/下载/删除操作
+ * - 分片上传支持
+ * 
+ * 运行在Cloudflare Workers环境，无需Node.js SDK
  */
 
 import type { Env } from '../types/env';
