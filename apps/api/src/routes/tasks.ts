@@ -265,6 +265,56 @@ app.post('/part', async (c) => {
   return c.json({ success: true, data: { partUrl, partNumber, expiresIn: UPLOAD_EXPIRY } });
 });
 
+const partDoneSchema = z.object({
+  taskId: z.string().min(1),
+  partNumber: z.number().int().min(1).max(10000),
+  etag: z.string().min(1, 'etag 不能为空'),
+});
+
+app.post('/part-done', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = partDoneSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { taskId, partNumber, etag } = result.data;
+  const db = getDb(c.env.DB);
+
+  const task = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+
+  if (task.status === 'completed') {
+    return c.json({ success: true, data: { message: '任务已完成' } });
+  }
+
+  if (new Date(task.expiresAt) < new Date()) {
+    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+  }
+
+  const uploadedParts = JSON.parse(task.uploadedParts || '[]');
+  if (!uploadedParts.includes(partNumber)) {
+    uploadedParts.push(partNumber);
+    await db
+      .update(uploadTasks)
+      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
+      .where(eq(uploadTasks.id, taskId));
+  }
+
+  return c.json({ success: true, data: { partNumber, etag, uploadedParts } });
+});
+
 app.post('/part-proxy', async (c) => {
   const userId = c.get('userId')!;
   const contentType = c.req.header('Content-Type') || '';

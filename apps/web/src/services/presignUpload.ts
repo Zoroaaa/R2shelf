@@ -342,6 +342,8 @@ async function multipartUpload({
                 },
                 signal
               );
+              // 通知服务器分片上传完成，更新进度
+              await apiPost('/api/tasks/part-done', { taskId, partNumber, etag });
             } catch (error) {
               if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
               // 检测 CORS 错误，切换到代理模式

@@ -12,6 +12,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@osshelf/shared';
+import { authApi } from '../services/api';
 
 interface AuthState {
   user: User | null;
@@ -56,7 +57,6 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
         try {
-          const { authApi } = await import('@/services/api');
           const res = await authApi.me();
           if (res.data.data) {
             set({

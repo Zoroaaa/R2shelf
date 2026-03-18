@@ -26,7 +26,7 @@ import {
   searchApi,
   batchApi,
 } from '@/services/api';
-import { presignUpload } from '@/services/presignUpload';
+import { presignUpload, getPresignedDownloadUrl } from '@/services/presignUpload';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useResponsive } from '@/hooks/useResponsive';
@@ -441,12 +441,7 @@ export default function Files() {
 
   const uploadMutation = useMutation({
     mutationFn: ({ file, parentId, key }: { file: File; parentId: string | null; key: string }) =>
-      presignUpload({
-        file,
-        parentId,
-        onProgress: (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })),
-        onFallback: () => {},
-      }),
+      uploadManager.startUpload(file, parentId, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p }))),
     onSuccess: (_, { key }) => {
       queryClient.invalidateQueries({ queryKey: ['files', folderId] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
@@ -563,9 +558,7 @@ export default function Files() {
 
   const handleDownload = async (file: FileItem) => {
     try {
-      const { url, fileName } = await import('@/services/presignUpload').then((m) =>
-        m.getPresignedDownloadUrl(file.id)
-      );
+      const { url, fileName } = await getPresignedDownloadUrl(file.id);
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName || file.name;
