@@ -46,7 +46,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
-  const [officeContent, setOfficeContent] = useState<{ base64Content: string; mimeType: string } | null>(null);
+  const [officePreviewUrl, setOfficePreviewUrl] = useState<string | null>(null);
+  const [officePreviewError, setOfficePreviewError] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const canPreview = isPreviewable(file.mimeType);
@@ -67,7 +68,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setLoadError(false);
     setTextContent(null);
     setPreviewInfo(null);
-    setOfficeContent(null);
+    setOfficePreviewUrl(null);
+    setOfficePreviewError(false);
 
     previewApi
       .getInfo(file.id)
@@ -112,20 +114,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [file.id, resolvedUrl, isText, canPreview]);
 
   useEffect(() => {
-    if (!isOffice || !canPreview) return;
+    if (!isOffice || !resolvedUrl) return;
 
-    previewApi
-      .getOffice(file.id)
-      .then((res) => {
-        if (res.data.data) {
-          setOfficeContent({
-            base64Content: res.data.data.base64Content,
-            mimeType: res.data.data.mimeType || file.mimeType || '',
-          });
-        }
-      })
-      .catch(() => setLoadError(true));
-  }, [file.id, isOffice, canPreview]);
+    const encodedUrl = encodeURIComponent(resolvedUrl);
+    setOfficePreviewUrl(`https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`);
+  }, [isOffice, resolvedUrl]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -157,7 +150,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             ? 'w-[90vw] max-w-5xl max-h-[90vh]'
             : isAudio
               ? 'w-full max-w-md'
-              : isPdf
+              : isPdf || isOffice
                 ? 'w-[90vw] max-w-5xl h-[90vh]'
                 : isText
                   ? 'w-[90vw] max-w-3xl max-h-[80vh]'
@@ -262,29 +255,45 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                 </div>
               )}
             </div>
-          ) : isOffice && officeContent ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="w-full max-w-md flex flex-col items-center justify-center p-8 space-y-4">
-                <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
-                  {getOfficeIcon()}
+          ) : isOffice ? (
+            <div className="w-full h-full flex flex-col">
+              {officePreviewError ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center py-12 px-6 space-y-4">
+                    <div className="w-16 h-16 mx-auto rounded-xl bg-primary/10 flex items-center justify-center">
+                      {getOfficeIcon()}
+                    </div>
+                    <div>
+                      <p className="font-medium">{file.name}</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {file.mimeType?.includes('word')
+                          ? 'Word 文档'
+                          : file.mimeType?.includes('excel')
+                            ? 'Excel 表格'
+                            : file.mimeType?.includes('powerpoint')
+                              ? 'PowerPoint 演示文稿'
+                              : 'Office 文档'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">在线预览不可用，请下载查看</p>
+                    </div>
+                    <Button onClick={() => onDownload(file)}>
+                      <Download className="h-4 w-4 mr-2" />
+                      下载文件
+                    </Button>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="font-medium">{file.name}</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {file.mimeType?.includes('word')
-                      ? 'Word 文档'
-                      : file.mimeType?.includes('excel')
-                        ? 'Excel 表格'
-                        : file.mimeType?.includes('powerpoint')
-                          ? 'PowerPoint 演示文稿'
-                          : 'Office 文档'}
-                  </p>
+              ) : officePreviewUrl ? (
+                <iframe
+                  src={officePreviewUrl}
+                  className="w-full h-full border-0"
+                  title={file.name}
+                  onError={() => setOfficePreviewError(true)}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-muted-foreground text-sm">加载预览...</div>
                 </div>
-                <Button onClick={() => onDownload(file)}>
-                  <Download className="h-4 w-4 mr-2" />
-                  下载查看
-                </Button>
-              </div>
+              )}
             </div>
           ) : null}
         </div>
