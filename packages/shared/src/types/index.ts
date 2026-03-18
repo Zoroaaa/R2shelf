@@ -163,7 +163,7 @@ export interface UploadTask {
   expiresAt: string;
 }
 
-export type UploadTaskStatus = 'pending' | 'uploading' | 'paused' | 'completed' | 'failed' | 'expired';
+export type UploadTaskStatus = 'pending' | 'uploading' | 'paused' | 'completed' | 'failed' | 'expired' | 'aborted';
 
 export interface DownloadTask {
   id: string;

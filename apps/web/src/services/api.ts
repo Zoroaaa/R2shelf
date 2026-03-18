@@ -383,6 +383,8 @@ export const tasksApi = {
     api.post<ApiResponse<{ partNumber: number; etag: string }>>('/api/tasks/part-proxy', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  partDone: (data: { taskId: string; partNumber: number; etag: string }) =>
+    api.post<ApiResponse<{ partNumber: number; etag: string; uploadedParts: number[] }>>('/api/tasks/part-done', data),
   complete: (data: { taskId: string; parts: Array<{ partNumber: number; etag: string }> }) =>
     api.post<ApiResponse<UploadedFile>>('/api/tasks/complete', data),
   abort: (taskId: string) => api.post<ApiResponse<{ message: string }>>('/api/tasks/abort', { taskId }),
@@ -390,6 +392,8 @@ export const tasksApi = {
   resume: (taskId: string) => api.post<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}/resume`),
   list: () => api.get<ApiResponse<UploadTask[]>>('/api/tasks/list'),
   delete: (taskId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}`),
+  clear: () => api.delete<ApiResponse<{ message: string }>>('/api/tasks/clear'),
+  clearAll: () => api.delete<ApiResponse<{ message: string }>>('/api/tasks/clear-all'),
 };
 
 export const downloadsApi = {

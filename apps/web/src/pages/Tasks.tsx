@@ -6,9 +6,10 @@
  * - 查看上传任务列表
  * - 断点续传管理
  * - 任务状态监控
+ * - 历史记录折叠
  */
 
-import { useState, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from '@/services/api';
 import { presignUpload } from '@/services/presignUpload';
@@ -31,6 +32,9 @@ import {
   AlertTriangle,
   FileText,
   RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  Ban,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -39,26 +43,92 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof
   paused: { label: '已暂停', color: 'text-orange-500', icon: AlertTriangle },
   completed: { label: '已完成', color: 'text-emerald-500', icon: CheckCircle2 },
   failed: { label: '失败', color: 'text-red-500', icon: XCircle },
-  expired: { label: '已过期', color: 'text-muted-foreground', icon: XCircle },
+  expired: { label: '已过期', color: 'text-muted-foreground', icon: Clock },
+  aborted: { label: '已取消', color: 'text-muted-foreground', icon: Ban },
 };
 
 const DEFAULT_STATUS = { label: '未知', color: 'text-muted-foreground', icon: Clock };
+
+type TaskGroup = {
+  label: string;
+  tasks: UploadTask[];
+  defaultExpanded: boolean;
+};
+
+function groupTasksByDate(tasks: UploadTask[]): TaskGroup[] {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const groups: TaskGroup[] = [
+    { label: '今天', tasks: [], defaultExpanded: true },
+    { label: '昨天', tasks: [], defaultExpanded: true },
+    { label: '最近7天', tasks: [], defaultExpanded: true },
+    { label: '最近30天', tasks: [], defaultExpanded: false },
+    { label: '更早', tasks: [], defaultExpanded: false },
+  ];
+
+  for (const task of tasks) {
+    const taskDate = new Date(task.createdAt);
+    if (taskDate >= today) {
+      groups[0]!.tasks.push(task);
+    } else if (taskDate >= yesterday) {
+      groups[1]!.tasks.push(task);
+    } else if (taskDate >= lastWeek) {
+      groups[2]!.tasks.push(task);
+    } else if (taskDate >= lastMonth) {
+      groups[3]!.tasks.push(task);
+    } else {
+      groups[4]!.tasks.push(task);
+    }
+  }
+
+  return groups.filter((g) => g.tasks.length > 0);
+}
 
 export default function Tasks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [resumingTaskId, setResumingTaskId] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     data: tasks = [],
     isLoading,
     refetch,
-  } = useQuery({
+  } = useQuery<UploadTask[]>({
     queryKey: ['tasks'],
     queryFn: () => tasksApi.list().then((r) => r.data.data ?? []),
     refetchInterval: 5000,
   });
+
+  // 初始化展开状态
+  const taskGroups = useMemo(() => {
+    const groups = groupTasksByDate(tasks);
+    // 设置默认展开状态
+    const defaultExpanded = new Set<string>();
+    groups.forEach((g) => {
+      if (g.defaultExpanded) {
+        defaultExpanded.add(g.label);
+      }
+    });
+    setExpandedGroups((prev) => {
+      const newSet = new Set(prev);
+      defaultExpanded.forEach((label) => newSet.add(label));
+      return newSet;
+    });
+    return groups;
+  }, [tasks]);
+
+  const activeTasks = tasks.filter((t) => 
+    ['uploading', 'pending', 'paused'].includes(t.status)
+  );
+  const historyTasks = tasks.filter((t) => 
+    ['completed', 'failed', 'expired', 'aborted'].includes(t.status)
+  );
 
   const abortMutation = useMutation({
     mutationFn: (taskId: string) => tasksApi.abort(taskId),
@@ -83,6 +153,34 @@ export default function Tasks() {
     onError: (e: any) =>
       toast({
         title: '删除失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () => tasksApi.clear(),
+    onSuccess: () => {
+      toast({ title: '已清空历史任务记录' });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '清空失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const clearAllMutation = useMutation({
+    mutationFn: () => tasksApi.clearAll(),
+    onSuccess: () => {
+      toast({ title: '已清空所有任务记录' });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '清空失败',
         description: e.response?.data?.error?.message,
         variant: 'destructive',
       }),
@@ -121,7 +219,7 @@ export default function Tasks() {
     fileInputRef.current?.click();
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>, tasks: UploadTask[]) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !resumingTaskId) return;
 
@@ -132,7 +230,6 @@ export default function Tasks() {
       return;
     }
 
-    // 验证文件大小是否匹配
     if (file.size !== task.fileSize) {
       toast({
         title: '文件大小不匹配',
@@ -143,7 +240,6 @@ export default function Tasks() {
       return;
     }
 
-    // 验证文件名是否匹配
     if (file.name !== task.fileName) {
       toast({
         title: '文件名不匹配',
@@ -184,29 +280,45 @@ export default function Tasks() {
     }
   };
 
-  const activeTasks = tasks.filter((t) => t.status === 'uploading' || t.status === 'pending' || t.status === 'paused');
-  const completedTasks = tasks.filter(
-    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired'
-  );
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(label)) {
+        newSet.delete(label);
+      } else {
+        newSet.add(label);
+      }
+      return newSet;
+    });
+  };
 
   return (
     <div className="space-y-6">
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => handleFileSelect(e, tasks)}
-      />
+      <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e)} />
 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">上传任务</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">管理大文件上传任务</p>
+          <p className="text-muted-foreground text-sm mt-0.5">管理文件上传任务</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4 mr-1.5" />
-          刷新
-        </Button>
+        <div className="flex items-center gap-2">
+          {historyTasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => clearMutation.mutate()}>
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              清空历史
+            </Button>
+          )}
+          {tasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => clearAllMutation.mutate()}>
+              <Ban className="h-4 w-4 mr-1.5" />
+              清空全部
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -246,36 +358,54 @@ export default function Tasks() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
+          {historyTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">历史任务</CardTitle>
+                    <CardDescription>{historyTasks.length} 个已完成或失败的任务</CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-base">历史任务</CardTitle>
-                  <CardDescription>已完成或失败的任务</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {completedTasks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">暂无历史任务</div>
-              ) : (
-                <div className="space-y-3">
-                  {completedTasks.map((task) => (
-                    <TaskItem key={task.id} task={task} onDelete={() => deleteMutation.mutate(task.id)} />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {taskGroups.map((group) => (
+                    <div key={group.label}>
+                      <button
+                        onClick={() => toggleGroup(group.label)}
+                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+                      >
+                        {expandedGroups.has(group.label) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                        {group.label}
+                        <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{group.tasks.length}</span>
+                      </button>
+                      {expandedGroups.has(group.label) && (
+                        <div className="space-y-3">
+                          {group.tasks.map((task) => (
+                            <TaskItem key={task.id} task={task} onDelete={() => deleteMutation.mutate(task.id)} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
           {tasks.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
               <Upload className="h-12 w-12 mx-auto mb-4 opacity-20" />
               <p className="font-medium">暂无上传任务</p>
-              <p className="text-sm mt-1">上传大文件时会自动创建任务</p>
+              <p className="text-sm mt-1">上传文件时会自动创建任务</p>
             </div>
           )}
         </>
@@ -308,7 +438,13 @@ function TaskItem({
       <div
         className={cn(
           'w-10 h-10 rounded-lg flex items-center justify-center',
-          task.status === 'uploading' ? 'bg-blue-500/10' : task.status === 'paused' ? 'bg-orange-500/10' : 'bg-muted'
+          task.status === 'uploading'
+            ? 'bg-blue-500/10'
+            : task.status === 'paused'
+              ? 'bg-orange-500/10'
+              : task.status === 'completed'
+                ? 'bg-emerald-500/10'
+                : 'bg-muted'
         )}
       >
         <FileText
@@ -318,7 +454,9 @@ function TaskItem({
               ? 'text-blue-500'
               : task.status === 'paused'
                 ? 'text-orange-500'
-                : 'text-muted-foreground'
+                : task.status === 'completed'
+                  ? 'text-emerald-500'
+                  : 'text-muted-foreground'
           )}
         />
       </div>
@@ -333,9 +471,11 @@ function TaskItem({
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
           <span>{formatBytes(task.fileSize)}</span>
-          <span>
-            {task.uploadedParts.length} / {task.totalParts} 分片
-          </span>
+          {task.totalParts > 1 && (
+            <span>
+              {task.uploadedParts.length} / {task.totalParts} 分片
+            </span>
+          )}
           <span>{formatDate(task.createdAt)}</span>
         </div>
         {(task.status === 'uploading' || task.status === 'pending' || task.status === 'paused') && (

@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { getDb, uploadTasks, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import {
@@ -209,17 +209,41 @@ app.get('/list', async (c) => {
 
   const tasks = await db.select().from(uploadTasks).where(eq(uploadTasks.userId, userId)).all();
 
-  const activeTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'expired');
-  const now = new Date();
-  const validTasks = activeTasks.filter((t) => new Date(t.expiresAt) > now);
-
+  // 返回所有任务，包括已完成和过期的
   return c.json({
     success: true,
-    data: validTasks.map((t) => ({
+    data: tasks.map((t) => ({
       ...t,
       uploadedParts: JSON.parse(t.uploadedParts || '[]'),
     })),
   });
+});
+
+app.delete('/clear', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  // 只删除已完成、失败、过期、取消的任务
+  await db
+    .delete(uploadTasks)
+    .where(
+      and(
+        eq(uploadTasks.userId, userId),
+        inArray(uploadTasks.status, ['completed', 'failed', 'expired', 'aborted'])
+      )
+    );
+
+  return c.json({ success: true, data: { message: '已清空历史任务记录' } });
+});
+
+app.delete('/clear-all', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  // 删除所有任务记录
+  await db.delete(uploadTasks).where(eq(uploadTasks.userId, userId));
+
+  return c.json({ success: true, data: { message: '已清空所有任务记录' } });
 });
 
 app.post('/part', async (c) => {
