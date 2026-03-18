@@ -1,7 +1,7 @@
 /**
  * ContextMenu.tsx
  * 右键菜单组件
- * 
+ *
  * 功能:
  * - 右键弹出菜单
  * - 支持子菜单
@@ -173,8 +173,8 @@ function MenuItem({ item, onClose, onSubmenuOpen, submenuOpen }: MenuItemProps) 
           item.disabled
             ? 'opacity-50 cursor-not-allowed'
             : item.danger
-            ? 'text-destructive hover:bg-destructive/10'
-            : 'hover:bg-accent',
+              ? 'text-destructive hover:bg-destructive/10'
+              : 'hover:bg-accent',
           submenuOpen === item.id && 'bg-accent'
         )}
         onClick={handleClick}
@@ -183,9 +183,7 @@ function MenuItem({ item, onClose, onSubmenuOpen, submenuOpen }: MenuItemProps) 
       >
         {item.icon && <span className="w-4 h-4 flex-shrink-0">{item.icon}</span>}
         <span className="flex-1 truncate">{item.label}</span>
-        {item.shortcut && (
-          <span className="text-xs text-muted-foreground ml-auto">{item.shortcut}</span>
-        )}
+        {item.shortcut && <span className="text-xs text-muted-foreground ml-auto">{item.shortcut}</span>}
         {item.submenu && (
           <svg className="w-3 h-3 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -208,8 +206,8 @@ function MenuItem({ item, onClose, onSubmenuOpen, submenuOpen }: MenuItemProps) 
                 subItem.disabled
                   ? 'opacity-50 cursor-not-allowed'
                   : subItem.danger
-                  ? 'text-destructive hover:bg-destructive/10'
-                  : 'hover:bg-accent'
+                    ? 'text-destructive hover:bg-destructive/10'
+                    : 'hover:bg-accent'
               )}
               onClick={() => {
                 if (!subItem.disabled) {
@@ -220,9 +218,7 @@ function MenuItem({ item, onClose, onSubmenuOpen, submenuOpen }: MenuItemProps) 
             >
               {subItem.icon && <span className="w-4 h-4 flex-shrink-0">{subItem.icon}</span>}
               <span className="flex-1 truncate">{subItem.label}</span>
-              {subItem.shortcut && (
-                <span className="text-xs text-muted-foreground">{subItem.shortcut}</span>
-              )}
+              {subItem.shortcut && <span className="text-xs text-muted-foreground">{subItem.shortcut}</span>}
             </div>
           ))}
         </div>
@@ -263,12 +259,7 @@ export function useContextMenuState() {
     openContextMenu,
     closeContextMenu,
     ContextMenuComponent: () => (
-      <ContextMenu
-        isOpen={state.isOpen}
-        position={state.position}
-        items={state.items}
-        onClose={closeContextMenu}
-      />
+      <ContextMenu isOpen={state.isOpen} position={state.position} items={state.items} onClose={closeContextMenu} />
     ),
   };
 }

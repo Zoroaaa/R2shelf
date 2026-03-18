@@ -1,7 +1,7 @@
 /**
  * useKeyboardShortcuts.ts
  * 键盘快捷键管理 Hook
- * 
+ *
  * 功能:
  * - 全局快捷键注册与管理
  * - 组合键支持 (Ctrl/Cmd + Key)
@@ -40,36 +40,34 @@ function getShortcutId(config: ShortcutConfig): string {
 function matchesShortcut(event: KeyboardEvent, config: ShortcutConfig): boolean {
   const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const modPressed = isMac ? event.metaKey : event.ctrlKey;
-  
+
   const needsCtrl = config.ctrl || config.meta;
   const ctrlMatch = needsCtrl ? modPressed : !modPressed;
   const shiftMatch = config.shift ? event.shiftKey : !event.shiftKey;
   const altMatch = config.alt ? event.altKey : !event.altKey;
-  const keyMatch = event.key.toLowerCase() === config.key.toLowerCase() ||
-                   event.code.toLowerCase() === config.key.toLowerCase();
-  
+  const keyMatch =
+    event.key.toLowerCase() === config.key.toLowerCase() || event.code.toLowerCase() === config.key.toLowerCase();
+
   return ctrlMatch && shiftMatch && altMatch && keyMatch;
 }
 
 export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
   const shortcutsRef = useRef<ShortcutConfig[]>(shortcuts);
-  
+
   useEffect(() => {
     shortcutsRef.current = shortcuts;
   }, [shortcuts]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     const target = event.target as HTMLElement;
-    const isInputFocused = target.tagName === 'INPUT' || 
-                           target.tagName === 'TEXTAREA' || 
-                           target.isContentEditable;
-    
+    const isInputFocused = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
     for (const config of shortcutsRef.current) {
       if (config.enabled === false) continue;
-      
+
       const scope = config.scope || 'global';
       if (isInputFocused && scope !== 'input') continue;
-      
+
       if (matchesShortcut(event, config)) {
         if (config.preventDefault !== false) {
           event.preventDefault();
@@ -90,13 +88,13 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
     getShortcutDisplay: (config: ShortcutConfig) => {
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const parts: string[] = [];
-      
+
       if (config.ctrl || config.meta) {
         parts.push(isMac ? '⌘' : 'Ctrl');
       }
       if (config.shift) parts.push(isMac ? '⇧' : 'Shift');
       if (config.alt) parts.push(isMac ? '⌥' : 'Alt');
-      
+
       let keyDisplay = config.key.toUpperCase();
       if (config.key === 'ArrowUp') keyDisplay = '↑';
       else if (config.key === 'ArrowDown') keyDisplay = '↓';
@@ -106,7 +104,7 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
       else if (config.key === 'Escape') keyDisplay = 'Esc';
       else if (config.key === 'Delete') keyDisplay = 'Del';
       else if (config.key === 'Backspace') keyDisplay = '⌫';
-      
+
       parts.push(keyDisplay);
       return parts.join(isMac ? '' : '+');
     },

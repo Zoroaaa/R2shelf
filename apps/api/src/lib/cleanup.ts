@@ -1,7 +1,7 @@
 /**
  * cleanup.ts
  * 定时清理任务逻辑
- * 
+ *
  * 功能:
  * - 回收站过期文件清理
  * - 过期会话清理
@@ -15,6 +15,7 @@ import { TRASH_RETENTION_DAYS } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete, s3AbortMultipartUpload } from './s3client';
 import { resolveBucketConfig, updateBucketStats } from './bucketResolver';
+import { getEncryptionKey } from './crypto';
 
 interface CleanupResult {
   trash: {
@@ -33,7 +34,7 @@ interface CleanupResult {
 
 export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
   const db = getDb(env.DB);
-  const encKey = env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(env);
 
   const result: CleanupResult = {
     trash: { deletedCount: 0, freedBytes: 0 },
@@ -71,11 +72,10 @@ async function runTrashCleanup(
   retentionDate.setDate(retentionDate.getDate() - TRASH_RETENTION_DAYS);
   const threshold = retentionDate.toISOString();
 
-  const expiredFiles = await db.select().from(files)
-    .where(and(
-      isNotNull(files.deletedAt),
-      lt(files.deletedAt, threshold)
-    ))
+  const expiredFiles = await db
+    .select()
+    .from(files)
+    .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, threshold)))
     .all();
 
   let deletedCount = 0;
@@ -109,7 +109,8 @@ async function runTrashCleanup(
   for (const [userId, freedSize] of userStorageChanges) {
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
     if (user) {
-      await db.update(users)
+      await db
+        .update(users)
         .set({
           storageUsed: Math.max(0, user.storageUsed - freedSize),
           updatedAt: new Date().toISOString(),
@@ -129,15 +130,15 @@ async function runSessionCleanup(
 ): Promise<{ webdavSessionsCleaned: number; uploadTasksExpired: number; loginAttemptsCleaned: number }> {
   const now = new Date().toISOString();
 
-  const expiredWebdav = await db.delete(webdavSessions)
+  const expiredWebdav = await db
+    .delete(webdavSessions)
     .where(lt(webdavSessions.expiresAt, now))
     .returning({ id: webdavSessions.id });
 
-  const expiredUploadTasks = await db.select().from(uploadTasks)
-    .where(and(
-      lt(uploadTasks.expiresAt, now),
-      eq(uploadTasks.status, 'pending')
-    ))
+  const expiredUploadTasks = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(lt(uploadTasks.expiresAt, now), eq(uploadTasks.status, 'pending')))
     .all();
 
   for (const task of expiredUploadTasks) {
@@ -149,16 +150,17 @@ async function runSessionCleanup(
     } catch (e) {
       console.error('Failed to abort expired upload:', e);
     }
-    await db.update(uploadTasks)
-      .set({ status: 'expired', updatedAt: now })
-      .where(eq(uploadTasks.id, task.id));
+    await db.update(uploadTasks).set({ status: 'expired', updatedAt: now }).where(eq(uploadTasks.id, task.id));
   }
 
-  const oldLoginAttempts = await db.delete(loginAttempts)
+  const oldLoginAttempts = await db
+    .delete(loginAttempts)
     .where(lt(loginAttempts.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()))
     .returning({ id: loginAttempts.id });
 
-  console.log(`Session cleanup: ${expiredWebdav.length} webdav sessions, ${expiredUploadTasks.length} upload tasks, ${oldLoginAttempts.length} login attempts`);
+  console.log(
+    `Session cleanup: ${expiredWebdav.length} webdav sessions, ${expiredUploadTasks.length} upload tasks, ${oldLoginAttempts.length} login attempts`
+  );
 
   return {
     webdavSessionsCleaned: expiredWebdav.length,
@@ -170,9 +172,7 @@ async function runSessionCleanup(
 async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCleaned: number }> {
   const now = new Date().toISOString();
 
-  const expiredShares = await db.delete(shares)
-    .where(lt(shares.expiresAt, now))
-    .returning({ id: shares.id });
+  const expiredShares = await db.delete(shares).where(lt(shares.expiresAt, now)).returning({ id: shares.id });
 
   console.log(`Share cleanup: ${expiredShares.length} expired shares removed`);
 

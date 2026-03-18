@@ -1,7 +1,7 @@
 /**
  * index.ts
  * API服务入口文件
- * 
+ *
  * 功能:
  * - 注册所有API路由
  * - 配置中间件（CORS、日志、安全头）
@@ -35,17 +35,23 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
-app.use('*', cors({
-  origin: ['https://ossshelf.neutronx.uk'],
-  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With'],
-  exposeHeaders: ['Content-Length', 'Content-Range'],
-  maxAge: 86400,
-  credentials: true,
-}));
-app.use('*', secureHeaders({
-  crossOriginResourcePolicy: false,
-}));
+app.use(
+  '*',
+  cors({
+    origin: ['https://ossshelf.neutronx.uk'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
+    allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With'],
+    exposeHeaders: ['Content-Length', 'Content-Range'],
+    maxAge: 86400,
+    credentials: true,
+  })
+);
+app.use(
+  '*',
+  secureHeaders({
+    crossOriginResourcePolicy: false,
+  })
+);
 
 app.use('*', errorHandler);
 
@@ -85,11 +91,13 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     console.log(`Cron trigger fired at ${new Date().toISOString()}`);
     ctx.waitUntil(
-      runAllCleanupTasks(env).then((result) => {
-        console.log('Cron job completed:', JSON.stringify(result));
-      }).catch((error) => {
-        console.error('Cron job failed:', error);
-      })
+      runAllCleanupTasks(env)
+        .then((result) => {
+          console.log('Cron job completed:', JSON.stringify(result));
+        })
+        .catch((error) => {
+          console.error('Cron job failed:', error);
+        })
     );
   },
 };

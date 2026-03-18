@@ -1,7 +1,7 @@
 /**
  * Tasks.tsx
  * 上传任务管理页面
- * 
+ *
  * 功能:
  * - 查看上传任务列表
  * - 断点续传管理
@@ -18,8 +18,17 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
-  Upload, Trash2, Loader2, RefreshCw, CheckCircle2, XCircle,
-  Clock, Pause, Play, AlertTriangle, FileText,
+  Upload,
+  Trash2,
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Pause,
+  Play,
+  AlertTriangle,
+  FileText,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -37,7 +46,11 @@ export default function Tasks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: tasks = [], isLoading, refetch } = useQuery({
+  const {
+    data: tasks = [],
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ['tasks'],
     queryFn: () => tasksApi.list().then((r) => r.data.data ?? []),
     refetchInterval: 5000,
@@ -49,11 +62,12 @@ export default function Tasks() {
       toast({ title: '任务已取消' });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
-    onError: (e: any) => toast({
-      title: '取消失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '取消失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const deleteMutation = useMutation({
@@ -62,11 +76,12 @@ export default function Tasks() {
       toast({ title: '任务已删除' });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
-    onError: (e: any) => toast({
-      title: '删除失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '删除失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const pauseMutation = useMutation({
@@ -75,11 +90,12 @@ export default function Tasks() {
       toast({ title: '任务已暂停' });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
-    onError: (e: any) => toast({
-      title: '暂停失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '暂停失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const resumeMutation = useMutation({
@@ -88,15 +104,18 @@ export default function Tasks() {
       toast({ title: '任务已恢复' });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
-    onError: (e: any) => toast({
-      title: '恢复失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '恢复失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const activeTasks = tasks.filter((t) => t.status === 'uploading' || t.status === 'pending' || t.status === 'paused');
-  const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired');
+  const completedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired'
+  );
 
   return (
     <div className="space-y-6">
@@ -161,17 +180,11 @@ export default function Tasks() {
             </CardHeader>
             <CardContent>
               {completedTasks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  暂无历史任务
-                </div>
+                <div className="text-center py-8 text-muted-foreground text-sm">暂无历史任务</div>
               ) : (
                 <div className="space-y-3">
                   {completedTasks.map((task) => (
-                    <TaskItem
-                      key={task.id}
-                      task={task}
-                      onDelete={() => deleteMutation.mutate(task.id)}
-                    />
+                    <TaskItem key={task.id} task={task} onDelete={() => deleteMutation.mutate(task.id)} />
                   ))}
                 </div>
               )}
@@ -205,21 +218,27 @@ function TaskItem({
   onResume?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
-  const progress = task.totalParts > 0
-    ? Math.round((task.uploadedParts.length / task.totalParts) * 100)
-    : 0;
+  const progress = task.totalParts > 0 ? Math.round((task.uploadedParts.length / task.totalParts) * 100) : 0;
   const StatusIcon = status.icon;
 
   return (
     <div className="flex items-center gap-4 p-4 rounded-lg border bg-muted/30">
-      <div className={cn(
-        'w-10 h-10 rounded-lg flex items-center justify-center',
-        task.status === 'uploading' ? 'bg-blue-500/10' : task.status === 'paused' ? 'bg-orange-500/10' : 'bg-muted'
-      )}>
-        <FileText className={cn(
-          'h-5 w-5',
-          task.status === 'uploading' ? 'text-blue-500' : task.status === 'paused' ? 'text-orange-500' : 'text-muted-foreground'
-        )} />
+      <div
+        className={cn(
+          'w-10 h-10 rounded-lg flex items-center justify-center',
+          task.status === 'uploading' ? 'bg-blue-500/10' : task.status === 'paused' ? 'bg-orange-500/10' : 'bg-muted'
+        )}
+      >
+        <FileText
+          className={cn(
+            'h-5 w-5',
+            task.status === 'uploading'
+              ? 'text-blue-500'
+              : task.status === 'paused'
+                ? 'text-orange-500'
+                : 'text-muted-foreground'
+          )}
+        />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -232,23 +251,23 @@ function TaskItem({
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
           <span>{formatBytes(task.fileSize)}</span>
-          <span>{task.uploadedParts.length} / {task.totalParts} 分片</span>
+          <span>
+            {task.uploadedParts.length} / {task.totalParts} 分片
+          </span>
           <span>{formatDate(task.createdAt)}</span>
         </div>
         {(task.status === 'uploading' || task.status === 'pending' || task.status === 'paused') && (
           <div className="mt-2">
             <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
               <div
-                className={cn("h-full transition-all", task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
+                className={cn('h-full transition-all', task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
                 style={{ width: `${progress}%` }}
               />
             </div>
             <p className="text-xs text-muted-foreground mt-1">{progress}%</p>
           </div>
         )}
-        {task.errorMessage && (
-          <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>
-        )}
+        {task.errorMessage && <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>}
       </div>
 
       <div className="flex items-center gap-1">
@@ -276,12 +295,7 @@ function TaskItem({
             取消
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-red-500 hover:text-red-600"
-          onClick={onDelete}
-        >
+        <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>

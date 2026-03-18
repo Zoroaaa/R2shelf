@@ -1,7 +1,7 @@
 /**
  * FileTagsManager.tsx
  * 文件标签管理组件
- * 
+ *
  * 功能:
  * - 查看文件标签
  * - 添加/删除标签
@@ -37,8 +37,7 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
   });
 
   const addTagMutation = useMutation({
-    mutationFn: (data: { name: string; color?: string }) =>
-      permissionsApi.addTag({ fileId, ...data }),
+    mutationFn: (data: { name: string; color?: string }) => permissionsApi.addTag({ fileId, ...data }),
     onSuccess: () => {
       toast({ title: '标签已添加' });
       queryClient.invalidateQueries({ queryKey: ['file-tags', fileId] });
@@ -46,25 +45,26 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
       setNewTagName('');
       setShowAddTag(false);
     },
-    onError: (e: any) => toast({
-      title: '添加失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '添加失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const removeTagMutation = useMutation({
-    mutationFn: (tagName: string) =>
-      permissionsApi.removeTag({ fileId, tagName }),
+    mutationFn: (tagName: string) => permissionsApi.removeTag({ fileId, tagName }),
     onSuccess: () => {
       toast({ title: '标签已移除' });
       queryClient.invalidateQueries({ queryKey: ['file-tags', fileId] });
     },
-    onError: (e: any) => toast({
-      title: '移除失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '移除失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const handleAddTag = () => {
@@ -140,7 +140,10 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
             size="sm"
             variant="ghost"
             className="h-7 px-2"
-            onClick={() => { setShowAddTag(false); setNewTagName(''); }}
+            onClick={() => {
+              setShowAddTag(false);
+              setNewTagName('');
+            }}
           >
             <X className="h-3 w-3" />
           </Button>

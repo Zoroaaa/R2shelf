@@ -1,7 +1,7 @@
 /**
  * error.ts
  * 错误处理中间件
- * 
+ *
  * 功能:
  * - 全局异常捕获
  * - 统一错误响应格式
@@ -22,16 +22,10 @@ export const errorHandler: MiddlewareHandler<AppEnv> = async (c, next) => {
 
     if (error instanceof Error) {
       const status = getErrorStatus(error.message);
-      return c.json(
-        { success: false, error: { code: getErrorCode(error.message), message: error.message } },
-        status,
-      );
+      return c.json({ success: false, error: { code: getErrorCode(error.message), message: error.message } }, status);
     }
 
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '服务器内部错误' } },
-      500,
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '服务器内部错误' } }, 500);
   }
 };
 

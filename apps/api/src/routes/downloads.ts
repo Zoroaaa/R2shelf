@@ -1,7 +1,7 @@
 /**
  * downloads.ts
  * 离线下载路由
- * 
+ *
  * 功能:
  * - 创建离线下载任务
  * - 任务状态管理
@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { s3Put } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { getEncryptionKey } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -64,7 +65,10 @@ app.post('/create', async (c) => {
   const body = await c.req.json();
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { url, fileName, parentId, bucketId } = result.data;
@@ -75,7 +79,7 @@ app.post('/create', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
   }
 
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
   if (!bucketConfig) {
     return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
@@ -117,7 +121,8 @@ app.post('/create', async (c) => {
       let downloadedBytes = 0;
       let totalSize = 0;
       try {
-        await db.update(downloadTasks)
+        await db
+          .update(downloadTasks)
           .set({ status: 'downloading', updatedAt: new Date().toISOString() })
           .where(eq(downloadTasks.id, taskId));
 
@@ -181,7 +186,8 @@ app.post('/create', async (c) => {
           const now = Date.now();
           if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
             const progress = fileSize > 0 ? Math.round((downloadedBytes / fileSize) * 100) : 0;
-            await db.update(downloadTasks)
+            await db
+              .update(downloadTasks)
               .set({ progress, fileSize: downloadedBytes, updatedAt: new Date().toISOString() })
               .where(eq(downloadTasks.id, taskId));
             lastProgressUpdate = now;
@@ -211,13 +217,15 @@ app.post('/create', async (c) => {
           deletedAt: null,
         });
 
-        await db.update(users)
+        await db
+          .update(users)
           .set({ storageUsed: user.storageUsed + totalSize, updatedAt: now })
           .where(eq(users.id, userId));
 
         await updateBucketStats(db, bucketConfig.id, totalSize, 1);
 
-        await db.update(downloadTasks)
+        await db
+          .update(downloadTasks)
           .set({
             status: 'completed',
             progress: 100,
@@ -228,7 +236,8 @@ app.post('/create', async (c) => {
           .where(eq(downloadTasks.id, taskId));
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '下载失败';
-        await db.update(downloadTasks)
+        await db
+          .update(downloadTasks)
           .set({
             status: 'failed',
             errorMessage,
@@ -265,14 +274,18 @@ app.get('/list', async (c) => {
     conditions.push(eq(downloadTasks.status, status));
   }
 
-  const tasks = await db.select().from(downloadTasks)
+  const tasks = await db
+    .select()
+    .from(downloadTasks)
     .where(and(...conditions))
     .orderBy(desc(downloadTasks.createdAt))
     .limit(limit)
     .offset((page - 1) * limit)
     .all();
 
-  const total = await db.select().from(downloadTasks)
+  const total = await db
+    .select()
+    .from(downloadTasks)
     .where(and(...conditions))
     .all()
     .then((r) => r.length);
@@ -293,7 +306,8 @@ app.delete('/completed', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const result = await db.delete(downloadTasks)
+  const result = await db
+    .delete(downloadTasks)
     .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'completed')))
     .returning({ id: downloadTasks.id });
 
@@ -310,7 +324,8 @@ app.delete('/failed', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const result = await db.delete(downloadTasks)
+  const result = await db
+    .delete(downloadTasks)
     .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'failed')))
     .returning({ id: downloadTasks.id });
 
@@ -328,7 +343,9 @@ app.get('/:taskId', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -346,12 +363,17 @@ app.patch('/:taskId', async (c) => {
   const result = updateTaskSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -360,7 +382,10 @@ app.patch('/:taskId', async (c) => {
   }
 
   if (task.status !== 'pending') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能修改待处理的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能修改待处理的任务' } },
+      400
+    );
   }
 
   const now = new Date().toISOString();
@@ -376,13 +401,9 @@ app.patch('/:taskId', async (c) => {
     updateData.bucketId = result.data.bucketId || null;
   }
 
-  await db.update(downloadTasks)
-    .set(updateData)
-    .where(eq(downloadTasks.id, taskId));
+  await db.update(downloadTasks).set(updateData).where(eq(downloadTasks.id, taskId));
 
-  const updated = await db.select().from(downloadTasks)
-    .where(eq(downloadTasks.id, taskId))
-    .get();
+  const updated = await db.select().from(downloadTasks).where(eq(downloadTasks.id, taskId)).get();
 
   return c.json({ success: true, data: updated });
 });
@@ -392,7 +413,9 @@ app.delete('/:taskId', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -401,7 +424,10 @@ app.delete('/:taskId', async (c) => {
   }
 
   if (task.status === 'downloading') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法删除正在下载的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法删除正在下载的任务' } },
+      400
+    );
   }
 
   await db.delete(downloadTasks).where(eq(downloadTasks.id, taskId));
@@ -414,7 +440,9 @@ app.post('/:taskId/retry', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -423,10 +451,14 @@ app.post('/:taskId/retry', async (c) => {
   }
 
   if (task.status !== 'failed') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能重试失败的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能重试失败的任务' } },
+      400
+    );
   }
 
-  await db.update(downloadTasks)
+  await db
+    .update(downloadTasks)
     .set({
       status: 'pending',
       progress: 0,
@@ -443,7 +475,9 @@ app.post('/:taskId/pause', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -452,10 +486,14 @@ app.post('/:taskId/pause', async (c) => {
   }
 
   if (task.status !== 'downloading' && task.status !== 'pending') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停下载中或等待中的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停下载中或等待中的任务' } },
+      400
+    );
   }
 
-  await db.update(downloadTasks)
+  await db
+    .update(downloadTasks)
     .set({
       status: 'paused',
       updatedAt: new Date().toISOString(),
@@ -470,7 +508,9 @@ app.post('/:taskId/resume', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(downloadTasks)
+  const task = await db
+    .select()
+    .from(downloadTasks)
     .where(and(eq(downloadTasks.id, taskId), eq(downloadTasks.userId, userId)))
     .get();
 
@@ -479,10 +519,14 @@ app.post('/:taskId/resume', async (c) => {
   }
 
   if (task.status !== 'paused') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } },
+      400
+    );
   }
 
-  await db.update(downloadTasks)
+  await db
+    .update(downloadTasks)
     .set({
       status: 'pending',
       errorMessage: null,

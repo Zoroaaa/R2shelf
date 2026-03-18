@@ -1,7 +1,7 @@
 /**
  * MobileBottomNav.tsx
  * 移动端底部导航组件
- * 
+ *
  * 功能:
  * - 底部导航栏
  * - 快捷操作按钮
@@ -12,9 +12,20 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import {
-  LayoutDashboard, FolderOpen, Share2, Settings,
-  Upload, Plus, Menu, X, Trash2, Database,
-  LogOut, User, Download, Shield,
+  LayoutDashboard,
+  FolderOpen,
+  Share2,
+  Settings,
+  Upload,
+  Plus,
+  Menu,
+  X,
+  Trash2,
+  Database,
+  LogOut,
+  User,
+  Download,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -47,7 +58,7 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
   });
   const trashCount = (trashItems as any[]).length;
 
-  const isActive = (item: typeof NAV_ITEMS[0]) =>
+  const isActive = (item: (typeof NAV_ITEMS)[0]) =>
     item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path);
 
   const isInFiles = location.pathname.startsWith('/files');
@@ -59,9 +70,7 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active = isActive(item);
-            const badge = item.path === '/files' && selectedFiles.length > 0 
-              ? selectedFiles.length 
-              : null;
+            const badge = item.path === '/files' && selectedFiles.length > 0 ? selectedFiles.length : null;
 
             return (
               <NavLink
@@ -97,17 +106,11 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
 
       {showQuickActions && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowQuickActions(false)}
-          />
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowQuickActions(false)} />
           <div className="absolute bottom-0 left-0 right-0 bg-card border-t rounded-t-2xl animate-slide-up safe-bottom">
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="font-semibold">快捷操作</h3>
-              <button
-                onClick={() => setShowQuickActions(false)}
-                className="p-1 rounded-full hover:bg-accent"
-              >
+              <button onClick={() => setShowQuickActions(false)} className="p-1 rounded-full hover:bg-accent">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -144,7 +147,7 @@ export function MobileBottomNav({ onUpload, onNewFolder }: MobileBottomNavProps)
                     />
                   </>
                 )}
-                
+
                 <NavLink
                   to="/tasks"
                   onClick={() => setShowQuickActions(false)}

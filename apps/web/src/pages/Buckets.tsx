@@ -1,7 +1,7 @@
 /**
  * Buckets.tsx
  * 存储桶管理页面
- * 
+ *
  * 功能:
  * - 多厂商存储桶配置
  * - 存储桶增删改查
@@ -19,10 +19,28 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBytes } from '@/utils';
 import { cn } from '@/utils';
 import {
-  Plus, Trash2, Star, StarOff, RefreshCw, CheckCircle2, XCircle,
-  AlertTriangle, Eye, EyeOff, ChevronDown, ChevronUp, Settings2,
-  Loader2, ToggleLeft, ToggleRight, Edit3, X, Save, Database,
-  Wifi, WifiOff,
+  Plus,
+  Trash2,
+  Star,
+  StarOff,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
+  Settings2,
+  Loader2,
+  ToggleLeft,
+  ToggleRight,
+  Edit3,
+  X,
+  Save,
+  Database,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 // ── Provider Badge ────────────────────────────────────────────────────────
@@ -62,7 +80,7 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
     storageQuota: initial?.storageQuota ?? null,
   });
   const [storageQuotaInput, setStorageQuotaInput] = useState<string>(
-    initial?.storageQuota ? String(Math.round(initial.storageQuota / (1024**3))) : ''
+    initial?.storageQuota ? String(Math.round(initial.storageQuota / 1024 ** 3)) : ''
   );
   const [showSecret, setShowSecret] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -89,9 +107,16 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
     }
   };
 
-  const field = (label: string, key: keyof BucketFormData, opts?: {
-    type?: string; placeholder?: string; required?: boolean; hint?: string;
-  }) => (
+  const field = (
+    label: string,
+    key: keyof BucketFormData,
+    opts?: {
+      type?: string;
+      placeholder?: string;
+      required?: boolean;
+      hint?: string;
+    }
+  ) => (
     <div className="space-y-1.5">
       <label className="text-sm font-medium flex items-center gap-1">
         {label}
@@ -113,9 +138,16 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
     <div className="space-y-5">
       {/* Provider selector */}
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">存储厂商 <span className="text-red-500">*</span></label>
+        <label className="text-sm font-medium">
+          存储厂商 <span className="text-red-500">*</span>
+        </label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.entries(PROVIDER_META) as [StorageBucket['provider'], typeof PROVIDER_META[keyof typeof PROVIDER_META]][]).map(([key, m]) => (
+          {(
+            Object.entries(PROVIDER_META) as [
+              StorageBucket['provider'],
+              (typeof PROVIDER_META)[keyof typeof PROVIDER_META],
+            ][]
+          ).map(([key, m]) => (
             <button
               key={key}
               type="button"
@@ -141,9 +173,7 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <label className="text-sm font-medium flex items-center gap-1">
-            Endpoint URL
-          </label>
+          <label className="text-sm font-medium flex items-center gap-1">Endpoint URL</label>
           <Input
             value={form.endpoint || ''}
             onChange={(e) => setForm((f) => ({ ...f, endpoint: e.target.value }))}
@@ -168,7 +198,11 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
               )}
             >
               <option value="">选择区域…</option>
-              {meta.regions.map((r) => <option key={r} value={r}>{r}</option>)}
+              {meta.regions.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
             </select>
           ) : (
             <Input
@@ -183,9 +217,7 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
 
       {/* Credentials */}
       <div className="space-y-3 p-4 rounded-lg bg-muted/40 border">
-        <p className="text-sm font-medium text-muted-foreground">
-          访问凭证{isEdit ? '（留空则保留原值）' : ''}
-        </p>
+        <p className="text-sm font-medium text-muted-foreground">访问凭证{isEdit ? '（留空则保留原值）' : ''}</p>
         {field('Access Key ID', 'accessKeyId', {
           required: !isEdit,
           placeholder: isEdit ? '留空则保留原有凭证' : '输入 Access Key ID',
@@ -260,9 +292,7 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
           />
           <span className="text-sm text-muted-foreground">GB</span>
           {form.storageQuota && (
-            <span className="text-xs text-muted-foreground">
-              ≈ {(form.storageQuota / (1024**3)).toFixed(1)} GB
-            </span>
+            <span className="text-xs text-muted-foreground">≈ {(form.storageQuota / 1024 ** 3).toFixed(1)} GB</span>
           )}
         </div>
         <p className="text-xs text-muted-foreground">限制此存储桶的最大使用量（留空则无限制）</p>
@@ -293,16 +323,27 @@ interface BucketCardProps {
   testLoading?: boolean;
 }
 
-function BucketCard({ bucket, onEdit, onDelete, onSetDefault, onToggle, onTest, testResult, testLoading }: BucketCardProps) {
+function BucketCard({
+  bucket,
+  onEdit,
+  onDelete,
+  onSetDefault,
+  onToggle,
+  onTest,
+  testResult,
+  testLoading,
+}: BucketCardProps) {
   const [expanded, setExpanded] = useState(false);
   const meta = PROVIDER_META[bucket.provider];
 
   return (
-    <div className={cn(
-      'rounded-xl border transition-all duration-200',
-      !bucket.isActive && 'opacity-60',
-      bucket.isDefault && 'border-primary/40 bg-primary/[0.02]',
-    )}>
+    <div
+      className={cn(
+        'rounded-xl border transition-all duration-200',
+        !bucket.isActive && 'opacity-60',
+        bucket.isDefault && 'border-primary/40 bg-primary/[0.02]'
+      )}
+    >
       {/* Header row */}
       <div className="flex items-start gap-3 p-4">
         <div
@@ -346,25 +387,20 @@ function BucketCard({ bucket, onEdit, onDelete, onSetDefault, onToggle, onTest, 
         <span className="flex items-center gap-1">
           <Database className="h-3.5 w-3.5" />
           {formatBytes(bucket.storageUsed)}
-          {bucket.storageQuota && (
-            <span className="opacity-50">/ {formatBytes(bucket.storageQuota)}</span>
-          )}
+          {bucket.storageQuota && <span className="opacity-50">/ {formatBytes(bucket.storageQuota)}</span>}
         </span>
         <span>{bucket.fileCount} 个文件</span>
         {bucket.region && <span className="font-mono">{bucket.region}</span>}
 
         {/* Test result */}
         {testResult && (
-          <span className={cn(
-            'flex items-center gap-1 ml-auto px-2 py-0.5 rounded-full',
-            testResult.connected
-              ? 'bg-emerald-500/10 text-emerald-600'
-              : 'bg-red-500/10 text-red-600'
-          )}>
-            {testResult.connected
-              ? <CheckCircle2 className="h-3.5 w-3.5" />
-              : <XCircle className="h-3.5 w-3.5" />
-            }
+          <span
+            className={cn(
+              'flex items-center gap-1 ml-auto px-2 py-0.5 rounded-full',
+              testResult.connected ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-600'
+            )}
+          >
+            {testResult.connected ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
             {testResult.message}
           </span>
         )}
@@ -373,9 +409,7 @@ function BucketCard({ bucket, onEdit, onDelete, onSetDefault, onToggle, onTest, 
       {/* Expanded actions */}
       {expanded && (
         <div className="px-4 pb-4 space-y-3 border-t pt-3">
-          {bucket.notes && (
-            <p className="text-xs text-muted-foreground italic">{bucket.notes}</p>
-          )}
+          {bucket.notes && <p className="text-xs text-muted-foreground italic">{bucket.notes}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
             <Button
               variant="outline"
@@ -384,45 +418,38 @@ function BucketCard({ bucket, onEdit, onDelete, onSetDefault, onToggle, onTest, 
               disabled={testLoading}
               className="text-xs"
             >
-              {testLoading
-                ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                : <Wifi className="h-3.5 w-3.5 mr-1.5" />
-              }
+              {testLoading ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Wifi className="h-3.5 w-3.5 mr-1.5" />
+              )}
               测试连接
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onEdit(bucket)}
-              className="text-xs"
-            >
+            <Button variant="outline" size="sm" onClick={() => onEdit(bucket)} className="text-xs">
               <Edit3 className="h-3.5 w-3.5 mr-1.5" />
               编辑
             </Button>
 
             {!bucket.isDefault && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onSetDefault(bucket.id)}
-                className="text-xs"
-              >
+              <Button variant="outline" size="sm" onClick={() => onSetDefault(bucket.id)} className="text-xs">
                 <Star className="h-3.5 w-3.5 mr-1.5" />
                 设为默认
               </Button>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onToggle(bucket.id)}
-              className="text-xs"
-            >
-              {bucket.isActive
-                ? <><ToggleRight className="h-3.5 w-3.5 mr-1.5" />禁用</>
-                : <><ToggleLeft className="h-3.5 w-3.5 mr-1.5" />启用</>
-              }
+            <Button variant="outline" size="sm" onClick={() => onToggle(bucket.id)} className="text-xs">
+              {bucket.isActive ? (
+                <>
+                  <ToggleRight className="h-3.5 w-3.5 mr-1.5" />
+                  禁用
+                </>
+              ) : (
+                <>
+                  <ToggleLeft className="h-3.5 w-3.5 mr-1.5" />
+                  启用
+                </>
+              )}
             </Button>
 
             <Button
@@ -461,26 +488,45 @@ export default function Buckets() {
 
   const createMutation = useMutation({
     mutationFn: (data: BucketFormData) => bucketsApi.create(data),
-    onSuccess: () => { toast({ title: '存储桶已添加' }); invalidate(); setShowForm(false); },
-    onError: (e: any) => toast({ title: '添加失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onSuccess: () => {
+      toast({ title: '存储桶已添加' });
+      invalidate();
+      setShowForm(false);
+    },
+    onError: (e: any) =>
+      toast({ title: '添加失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<BucketFormData> }) => bucketsApi.update(id, data),
-    onSuccess: () => { toast({ title: '存储桶已更新' }); invalidate(); setEditingBucket(null); },
-    onError: (e: any) => toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onSuccess: () => {
+      toast({ title: '存储桶已更新' });
+      invalidate();
+      setEditingBucket(null);
+    },
+    onError: (e: any) =>
+      toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => bucketsApi.delete(id),
-    onSuccess: () => { toast({ title: '已删除存储桶' }); invalidate(); setDeleteConfirmId(null); },
-    onError: (e: any) => toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onSuccess: () => {
+      toast({ title: '已删除存储桶' });
+      invalidate();
+      setDeleteConfirmId(null);
+    },
+    onError: (e: any) =>
+      toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const setDefaultMutation = useMutation({
     mutationFn: (id: string) => bucketsApi.setDefault(id),
-    onSuccess: () => { toast({ title: '已设为默认存储桶' }); invalidate(); },
-    onError: (e: any) => toast({ title: '操作失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onSuccess: () => {
+      toast({ title: '已设为默认存储桶' });
+      invalidate();
+    },
+    onError: (e: any) =>
+      toast({ title: '操作失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const toggleMutation = useMutation({
@@ -490,7 +536,8 @@ export default function Buckets() {
       toast({ title: active ? '已启用存储桶' : '已禁用存储桶' });
       invalidate();
     },
-    onError: (e: any) => toast({ title: '操作失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '操作失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const handleTest = async (id: string) => {
@@ -518,12 +565,13 @@ export default function Buckets() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">存储桶管理</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            管理多厂商、多存储桶的连接配置
-          </p>
+          <p className="text-muted-foreground text-sm mt-0.5">管理多厂商、多存储桶的连接配置</p>
         </div>
         <Button
-          onClick={() => { setShowForm(true); setEditingBucket(null); }}
+          onClick={() => {
+            setShowForm(true);
+            setEditingBucket(null);
+          }}
           disabled={showForm}
         >
           <Plus className="h-4 w-4 mr-1.5" />
@@ -543,9 +591,7 @@ export default function Buckets() {
                 <CardTitle className="text-base">
                   {editingBucket ? `编辑：${editingBucket.name}` : '添加新存储桶'}
                 </CardTitle>
-                <CardDescription>
-                  {editingBucket ? '修改存储桶配置' : '配置 S3 兼容存储桶的连接信息'}
-                </CardDescription>
+                <CardDescription>{editingBucket ? '修改存储桶配置' : '配置 S3 兼容存储桶的连接信息'}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -553,7 +599,10 @@ export default function Buckets() {
             <BucketForm
               initial={editingBucket}
               loading={createMutation.isPending || updateMutation.isPending}
-              onCancel={() => { setShowForm(false); setEditingBucket(null); }}
+              onCancel={() => {
+                setShowForm(false);
+                setEditingBucket(null);
+              }}
               onSave={(data) => {
                 if (editingBucket) {
                   updateMutation.mutate({ id: editingBucket.id, data });
@@ -579,9 +628,7 @@ export default function Buckets() {
               <Database className="h-7 w-7 text-muted-foreground" />
             </div>
             <h3 className="font-semibold mb-1">暂无存储桶配置</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              添加第一个存储桶来开始管理您的对象存储
-            </p>
+            <p className="text-sm text-muted-foreground mb-4">添加第一个存储桶来开始管理您的对象存储</p>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="h-4 w-4 mr-1.5" />
               添加第一个存储桶
@@ -594,7 +641,10 @@ export default function Buckets() {
             <BucketCard
               key={bucket.id}
               bucket={bucket}
-              onEdit={(b) => { setEditingBucket(b); setShowForm(false); }}
+              onEdit={(b) => {
+                setEditingBucket(b);
+                setShowForm(false);
+              }}
               onDelete={(id) => setDeleteConfirmId(id)}
               onSetDefault={(id) => setDefaultMutation.mutate(id)}
               onToggle={(id) => toggleMutation.mutate(id)}
@@ -646,13 +696,17 @@ export default function Buckets() {
         <CardContent className="pt-5">
           <h4 className="text-sm font-semibold mb-2">支持的存储厂商</h4>
           <div className="flex flex-wrap gap-2">
-            {(Object.entries(PROVIDER_META) as [StorageBucket['provider'], typeof PROVIDER_META[keyof typeof PROVIDER_META]][]).map(([key, m]) => (
+            {(
+              Object.entries(PROVIDER_META) as [
+                StorageBucket['provider'],
+                (typeof PROVIDER_META)[keyof typeof PROVIDER_META],
+              ][]
+            ).map(([key, m]) => (
               <ProviderBadge key={key} provider={key} />
             ))}
           </div>
           <p className="text-xs text-muted-foreground mt-3">
-            所有支持 S3 兼容 API 的对象存储服务均可通过"自定义 S3 兼容"接入。
-            凭证将加密存储于数据库中。
+            所有支持 S3 兼容 API 的对象存储服务均可通过"自定义 S3 兼容"接入。 凭证将加密存储于数据库中。
           </p>
         </CardContent>
       </Card>

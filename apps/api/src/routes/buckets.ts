@@ -1,12 +1,12 @@
 /**
  * buckets.ts
  * 存储桶管理路由
- * 
+ *
  * 功能:
  * - 多厂商存储桶配置（R2、S3、OSS、COS、OBS、B2、MinIO等）
  * - 存储桶增删改查
  * - 存储桶测试与切换
- * - 凭证加密存储
+ * - 凭证AES-GCM加密存储
  */
 
 import { Hono } from 'hono';
@@ -16,6 +16,7 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { getEncryptionKey } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -33,7 +34,7 @@ export const PROVIDERS = {
 } as const;
 
 // Import credential helpers and S3 test from shared lib
-import { obfuscate, deobfuscate, testS3Connection, makeBucketConfig } from '../lib/s3client';
+import { encryptSecret, testS3Connection, makeBucketConfigAsync } from '../lib/s3client';
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 const createBucketSchema = z.object({
@@ -47,7 +48,7 @@ const createBucketSchema = z.object({
   pathStyle: z.boolean().optional().default(false),
   isDefault: z.boolean().optional().default(false),
   notes: z.string().max(500).optional(),
-  storageQuota: z.number().int().positive().nullable().optional(),  // bytes, null = unlimited
+  storageQuota: z.number().int().positive().nullable().optional(), // bytes, null = unlimited
 });
 
 const updateBucketSchema = createBucketSchema.partial();
@@ -67,9 +68,7 @@ app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const buckets = await db.select().from(storageBuckets)
-    .where(eq(storageBuckets.userId, userId))
-    .all();
+  const buckets = await db.select().from(storageBuckets).where(eq(storageBuckets.userId, userId)).all();
 
   const sorted = [...buckets].sort((a, b) => {
     if (a.isDefault && !b.isDefault) return -1;
@@ -92,30 +91,34 @@ app.post('/', async (c) => {
   const result = createBucketSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json({
-      success: false,
-      error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
-    }, 400);
+    return c.json(
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
+      },
+      400
+    );
   }
 
   const data = result.data;
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
-  const encKey = c.env.JWT_SECRET || 'ossshelf-default-key';
+  const encKey = getEncryptionKey(c.env);
 
-  // If this is set as default, unset existing defaults
   if (data.isDefault) {
-    await db.update(storageBuckets)
+    await db
+      .update(storageBuckets)
       .set({ isDefault: false, updatedAt: now })
       .where(and(eq(storageBuckets.userId, userId), eq(storageBuckets.isDefault, true)));
   }
 
-  // If no buckets exist yet, make this the default automatically
-  const existing = await db.select().from(storageBuckets)
-    .where(eq(storageBuckets.userId, userId)).all();
+  const existing = await db.select().from(storageBuckets).where(eq(storageBuckets.userId, userId)).all();
   const shouldBeDefault = data.isDefault || existing.length === 0;
 
   const id = crypto.randomUUID();
+  const encryptedAccessKeyId = await encryptSecret(data.accessKeyId, encKey);
+  const encryptedSecretAccessKey = await encryptSecret(data.secretAccessKey, encKey);
+
   const newBucket = {
     id,
     userId,
@@ -124,8 +127,8 @@ app.post('/', async (c) => {
     bucketName: data.bucketName,
     endpoint: data.endpoint || null,
     region: data.region || null,
-    accessKeyId: obfuscate(data.accessKeyId, encKey),
-    secretAccessKey: obfuscate(data.secretAccessKey, encKey),
+    accessKeyId: encryptedAccessKeyId,
+    secretAccessKey: encryptedSecretAccessKey,
     pathStyle: data.pathStyle ?? false,
     isDefault: shouldBeDefault,
     isActive: true,
@@ -139,10 +142,13 @@ app.post('/', async (c) => {
 
   await db.insert(storageBuckets).values(newBucket);
 
-  return c.json({
-    success: true,
-    data: sanitize(newBucket as typeof storageBuckets.$inferSelect),
-  }, 201);
+  return c.json(
+    {
+      success: true,
+      data: sanitize(newBucket as typeof storageBuckets.$inferSelect),
+    },
+    201
+  );
 });
 
 // ── GET /api/buckets/:id — get single bucket ──────────────────────────────
@@ -151,7 +157,9 @@ app.get('/:id', async (c) => {
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -170,14 +178,19 @@ app.put('/:id', async (c) => {
   const result = updateBucketSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json({
-      success: false,
-      error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
-    }, 400);
+    return c.json(
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
+      },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -187,11 +200,11 @@ app.put('/:id', async (c) => {
 
   const data = result.data;
   const now = new Date().toISOString();
-  const encKey = c.env.JWT_SECRET || 'ossshelf-default-key';
+  const encKey = getEncryptionKey(c.env);
 
-  // Handle default switch
   if (data.isDefault && !bucket.isDefault) {
-    await db.update(storageBuckets)
+    await db
+      .update(storageBuckets)
       .set({ isDefault: false, updatedAt: now })
       .where(and(eq(storageBuckets.userId, userId), eq(storageBuckets.isDefault, true)));
   }
@@ -202,8 +215,9 @@ app.put('/:id', async (c) => {
   if (data.bucketName !== undefined) updateData.bucketName = data.bucketName;
   if (data.endpoint !== undefined) updateData.endpoint = data.endpoint || null;
   if (data.region !== undefined) updateData.region = data.region || null;
-  if (data.accessKeyId !== undefined) updateData.accessKeyId = obfuscate(data.accessKeyId, encKey);
-  if (data.secretAccessKey !== undefined) updateData.secretAccessKey = obfuscate(data.secretAccessKey, encKey);
+  if (data.accessKeyId !== undefined) updateData.accessKeyId = await encryptSecret(data.accessKeyId, encKey);
+  if (data.secretAccessKey !== undefined)
+    updateData.secretAccessKey = await encryptSecret(data.secretAccessKey, encKey);
   if (data.pathStyle !== undefined) updateData.pathStyle = data.pathStyle;
   if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
   if (data.notes !== undefined) updateData.notes = data.notes || null;
@@ -222,7 +236,9 @@ app.post('/:id/set-default', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -231,13 +247,9 @@ app.post('/:id/set-default', async (c) => {
   }
 
   // Unset all defaults, then set this one
-  await db.update(storageBuckets)
-    .set({ isDefault: false, updatedAt: now })
-    .where(eq(storageBuckets.userId, userId));
+  await db.update(storageBuckets).set({ isDefault: false, updatedAt: now }).where(eq(storageBuckets.userId, userId));
 
-  await db.update(storageBuckets)
-    .set({ isDefault: true, updatedAt: now })
-    .where(eq(storageBuckets.id, id));
+  await db.update(storageBuckets).set({ isDefault: true, updatedAt: now }).where(eq(storageBuckets.id, id));
 
   return c.json({ success: true, data: { message: '已设为默认存储桶' } });
 });
@@ -248,7 +260,9 @@ app.post('/:id/toggle', async (c) => {
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -257,9 +271,7 @@ app.post('/:id/toggle', async (c) => {
   }
 
   const now = new Date().toISOString();
-  await db.update(storageBuckets)
-    .set({ isActive: !bucket.isActive, updatedAt: now })
-    .where(eq(storageBuckets.id, id));
+  await db.update(storageBuckets).set({ isActive: !bucket.isActive, updatedAt: now }).where(eq(storageBuckets.id, id));
 
   return c.json({ success: true, data: { isActive: !bucket.isActive } });
 });
@@ -269,9 +281,11 @@ app.post('/:id/test', async (c) => {
   const userId = c.get('userId')!;
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-default-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -280,7 +294,7 @@ app.post('/:id/test', async (c) => {
   }
 
   try {
-    const cfg = makeBucketConfig(bucket, encKey);
+    const cfg = await makeBucketConfigAsync(bucket, encKey, db);
     const testResult = await testS3Connection(cfg);
     return c.json({ success: true, data: testResult });
   } catch (err: any) {
@@ -294,7 +308,9 @@ app.delete('/:id', async (c) => {
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const bucket = await db.select().from(storageBuckets)
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
     .where(and(eq(storageBuckets.id, id), eq(storageBuckets.userId, userId)))
     .get();
 
@@ -304,13 +320,16 @@ app.delete('/:id', async (c) => {
 
   if (bucket.isDefault) {
     // Check if there's another bucket to promote to default
-    const others = await db.select().from(storageBuckets)
+    const others = await db
+      .select()
+      .from(storageBuckets)
       .where(and(eq(storageBuckets.userId, userId)))
       .all();
     const remaining = others.filter((b) => b.id !== id);
     if (remaining.length > 0) {
       const now = new Date().toISOString();
-      await db.update(storageBuckets)
+      await db
+        .update(storageBuckets)
         .set({ isDefault: true, updatedAt: now })
         .where(eq(storageBuckets.id, remaining[0].id));
     }
@@ -320,7 +339,5 @@ app.delete('/:id', async (c) => {
 
   return c.json({ success: true, data: { message: '已删除存储桶配置' } });
 });
-
-
 
 export default app;

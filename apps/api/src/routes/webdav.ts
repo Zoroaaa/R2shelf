@@ -1,7 +1,7 @@
 /**
  * webdav.ts
  * WebDAV协议路由
- * 
+ *
  * 功能:
  * - WebDAV协议完整实现
  * - 支持Windows/macOS/Linux挂载
@@ -14,8 +14,8 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
-import { verifyPassword } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -114,7 +114,7 @@ type FileRow = typeof files.$inferSelect;
 
 function buildPropfindXML(items: FileRow[], basePath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
-  
+
   if (isRoot) {
     responses.push(`
   <response>
@@ -130,12 +130,12 @@ function buildPropfindXML(items: FileRow[], basePath: string, isRoot: boolean = 
     </propstat>
   </response>`);
   }
-  
+
   items.forEach((file) => {
     let href = file.path;
     if (!href.startsWith('/')) href = '/' + href;
     if (file.isFolder && !href.endsWith('/')) href += '/';
-    
+
     responses.push(`
   <response>
     <href>${escapeXml(href)}</href>
@@ -163,7 +163,7 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
 
   let parentCondition;
   let parentFolder = null;
-  
+
   if (isRoot) {
     parentCondition = isNull(files.parentId);
   } else {
@@ -178,8 +178,11 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
     }
   }
 
-  const items = await db.select().from(files)
-    .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt))).all();
+  const items = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
+    .all();
 
   if (depth === '0') {
     if (isRoot) {
@@ -204,25 +207,34 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
 }
 
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string) {
-  let file = await db.select().from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, path), isNull(files.deletedAt))).get();
-  
+  let file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.path, path), isNull(files.deletedAt)))
+    .get();
+
   if (!file) {
-    file = await db.select().from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path + '/'), isNull(files.deletedAt))).get();
+    file = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path + '/'), isNull(files.deletedAt)))
+      .get();
   }
-  
+
   if (!file && path.endsWith('/')) {
-    file = await db.select().from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)), isNull(files.deletedAt))).get();
+    file = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)), isNull(files.deletedAt)))
+      .get();
   }
-  
+
   return file;
 }
 
 async function handleGet(c: AppContext, userId: string, path: string, headOnly: boolean) {
   const db = getDb(c.env.DB);
-  
+
   if (path === '/' || path === '') {
     return new Response(headOnly ? null : 'Root Collection', {
       status: 200,
@@ -232,13 +244,13 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
       },
     });
   }
-  
+
   const file = await findFileByPath(db, userId, path);
 
   if (!file) return new Response('Not Found', { status: 404 });
   if (file.isFolder) return new Response('Is a collection', { status: 400 });
 
-  const encKeyG = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKeyG = getEncryptionKey(c.env);
   const bucketCfgG = await resolveBucketConfig(db, userId, encKeyG, file.bucketId, file.parentId);
   const hdrs = { 'Content-Type': file.mimeType || 'application/octet-stream', 'Content-Length': file.size.toString() };
   if (bucketCfgG) {
@@ -259,7 +271,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
-  const encKeyP = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKeyP = getEncryptionKey(c.env);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
@@ -268,20 +280,32 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
       let currentPath = '';
-      
+
       for (const part of pathParts) {
         currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
         let folder = await findFileByPath(db, userId, currentPath);
-        
+
         if (!folder) {
           const folderId = crypto.randomUUID();
           const now = new Date().toISOString();
           const bucketCfg = await resolveBucketConfig(db, userId, encKeyP, null, currentParentId);
-          
+
           await db.insert(files).values({
-            id: folderId, userId, parentId: currentParentId, name: part, path: currentPath, type: 'folder',
-            size: 0, r2Key: `folders/${folderId}`, mimeType: null, hash: null, isFolder: true, 
-            bucketId: bucketCfg?.id ?? null, createdAt: now, updatedAt: now, deletedAt: null,
+            id: folderId,
+            userId,
+            parentId: currentParentId,
+            name: part,
+            path: currentPath,
+            type: 'folder',
+            size: 0,
+            r2Key: `folders/${folderId}`,
+            mimeType: null,
+            hash: null,
+            isFolder: true,
+            bucketId: bucketCfg?.id ?? null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
           });
           currentParentId = folderId;
         } else {
@@ -314,9 +338,21 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     await db.update(files).set({ size: body.byteLength, mimeType, updatedAt: now }).where(eq(files.id, fileId));
   } else {
     await db.insert(files).values({
-      id: fileId, userId, parentId, name: fileName, path, type: 'file',
-      size: body.byteLength, r2Key, mimeType, hash: null, isFolder: false,
-      bucketId: bucketCfgP?.id ?? null, createdAt: now, updatedAt: now, deletedAt: null,
+      id: fileId,
+      userId,
+      parentId,
+      name: fileName,
+      path,
+      type: 'file',
+      size: body.byteLength,
+      r2Key,
+      mimeType,
+      hash: null,
+      isFolder: false,
+      bucketId: bucketCfgP?.id ?? null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
     });
     if (bucketCfgP) await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
   }
@@ -338,7 +374,7 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
   }
 
   const normalizedPath = path.endsWith('/') ? path : path + '/';
-  
+
   const existing = await findFileByPath(db, userId, normalizedPath);
   if (existing) return new Response('Method Not Allowed: already exists', { status: 405 });
 
@@ -346,9 +382,20 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
   const now = new Date().toISOString();
 
   await db.insert(files).values({
-    id: folderId, userId, parentId, name: folderName, path: normalizedPath, type: 'folder',
-    size: 0, r2Key: `folders/${folderId}`, mimeType: null, hash: null, isFolder: true, 
-    createdAt: now, updatedAt: now, deletedAt: null,
+    id: folderId,
+    userId,
+    parentId,
+    name: folderName,
+    path: normalizedPath,
+    type: 'folder',
+    size: 0,
+    r2Key: `folders/${folderId}`,
+    mimeType: null,
+    hash: null,
+    isFolder: true,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
   });
 
   return new Response(null, { status: 201 });
@@ -361,10 +408,14 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
   if (!file) return new Response('Not Found', { status: 404 });
 
   if (!file.isFolder) {
-    const encKeyD = c.env.JWT_SECRET || 'ossshelf-key';
+    const encKeyD = getEncryptionKey(c.env);
     const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, file.bucketId, file.parentId);
     if (bucketCfgD) {
-      try { await s3Delete(bucketCfgD, file.r2Key); } catch(e) { console.error('webdav delete s3 error:', e); }
+      try {
+        await s3Delete(bucketCfgD, file.r2Key);
+      } catch (e) {
+        console.error('webdav delete s3 error:', e);
+      }
       await updateBucketStats(db, bucketCfgD.id, -file.size, -1);
     } else if (c.env.FILES) {
       await c.env.FILES.delete(file.r2Key);
@@ -385,7 +436,8 @@ async function handleMove(c: AppContext, userId: string, path: string) {
   if (!file) return new Response('Not Found', { status: 404 });
 
   const newName = destPath.split('/').pop() || file.name;
-  await db.update(files)
+  await db
+    .update(files)
     .set({ name: newName, path: destPath, updatedAt: new Date().toISOString() })
     .where(eq(files.id, file.id));
 
@@ -407,26 +459,52 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   const now = new Date().toISOString();
 
   if (!file.isFolder) {
-    const encKeyC = c.env.JWT_SECRET || 'ossshelf-key';
+    const encKeyC = getEncryptionKey(c.env);
     const bucketCfgC = await resolveBucketConfig(db, userId, encKeyC, file.bucketId, file.parentId);
     const newR2Key = `files/${userId}/${newId}/${newName}`;
     if (bucketCfgC) {
       const srcRes = await s3Get(bucketCfgC, file.r2Key);
       await s3Put(bucketCfgC, newR2Key, await srcRes.arrayBuffer(), file.mimeType || 'application/octet-stream');
-      await db.insert(files).values({ 
-        id: newId, userId, parentId: file.parentId, name: newName, path: destPath, type: 'file', 
-        size: file.size, r2Key: newR2Key, mimeType: file.mimeType, hash: file.hash, 
-        isFolder: false, bucketId: file.bucketId, createdAt: now, updatedAt: now, deletedAt: null,
+      await db.insert(files).values({
+        id: newId,
+        userId,
+        parentId: file.parentId,
+        name: newName,
+        path: destPath,
+        type: 'file',
+        size: file.size,
+        r2Key: newR2Key,
+        mimeType: file.mimeType,
+        hash: file.hash,
+        isFolder: false,
+        bucketId: file.bucketId,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
       });
       await updateBucketStats(db, bucketCfgC.id, file.size, 1);
     } else if (c.env.FILES) {
       const r2Object = await c.env.FILES.get(file.r2Key);
       if (r2Object) {
-        await c.env.FILES.put(newR2Key, r2Object.body, { httpMetadata: { contentType: file.mimeType || 'application/octet-stream' } });
-        await db.insert(files).values({ 
-          id: newId, userId, parentId: file.parentId, name: newName, path: destPath, type: 'file', 
-          size: file.size, r2Key: newR2Key, mimeType: file.mimeType, hash: file.hash, 
-          isFolder: false, bucketId: null, createdAt: now, updatedAt: now, deletedAt: null,
+        await c.env.FILES.put(newR2Key, r2Object.body, {
+          httpMetadata: { contentType: file.mimeType || 'application/octet-stream' },
+        });
+        await db.insert(files).values({
+          id: newId,
+          userId,
+          parentId: file.parentId,
+          name: newName,
+          path: destPath,
+          type: 'file',
+          size: file.size,
+          r2Key: newR2Key,
+          mimeType: file.mimeType,
+          hash: file.hash,
+          isFolder: false,
+          bucketId: null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
         });
       }
     }

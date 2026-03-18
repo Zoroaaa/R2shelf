@@ -1,13 +1,13 @@
 /**
  * admin.ts
  * 管理员路由
- * 
+ *
  * 功能:
  * - 用户管理（列表、查询、禁用、删除）
  * - 注册配置管理
  * - 邀请码管理
  * - 系统统计与审计日志
- * 
+ *
  * 所有接口需要管理员权限
  */
 
@@ -43,12 +43,14 @@ app.use('*', async (c, next) => {
 
 // ── Schemas ───────────────────────────────────────────────────────────────
 
-const patchUserSchema = z.object({
-  name: z.string().max(100).optional(),
-  role: z.enum(['admin', 'user']).optional(),
-  storageQuota: z.number().int().min(0).optional(),  // bytes; 0 = no quota
-  newPassword: z.string().min(6).optional(),
-}).refine((d) => Object.keys(d).length > 0, { message: '至少提供一个更新字段' });
+const patchUserSchema = z
+  .object({
+    name: z.string().max(100).optional(),
+    role: z.enum(['admin', 'user']).optional(),
+    storageQuota: z.number().int().min(0).optional(), // bytes; 0 = no quota
+    newPassword: z.string().min(6).optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, { message: '至少提供一个更新字段' });
 
 const registrationSchema = z.object({
   open: z.boolean().optional(),
@@ -68,7 +70,11 @@ interface RegistrationConfig {
 async function getRegConfig(kv: KVNamespace): Promise<RegistrationConfig> {
   const raw = await kv.get(REG_CONFIG_KEY);
   if (!raw) return { open: true, requireInviteCode: false };
-  try { return JSON.parse(raw); } catch { return { open: true, requireInviteCode: false }; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { open: true, requireInviteCode: false };
+  }
 }
 
 // ── GET /api/admin/users ──────────────────────────────────────────────────
@@ -78,23 +84,28 @@ app.get('/users', async (c) => {
   const allUsers = await db.select().from(users).all();
 
   // Attach bucket count per user (fast: single query per user is fine for admin view)
-  const enriched = await Promise.all(allUsers.map(async (u) => {
-    const buckets = await db.select().from(storageBuckets).where(eq(storageBuckets.userId, u.id)).all();
-    const fileCount = await db.select({ id: files.id }).from(files)
-      .where(and(eq(files.userId, u.id), isNull(files.deletedAt))).all();
-    return {
-      id: u.id,
-      email: u.email,
-      name: u.name,
-      role: u.role,
-      storageQuota: u.storageQuota,
-      storageUsed: u.storageUsed,
-      fileCount: fileCount.length,
-      bucketCount: buckets.length,
-      createdAt: u.createdAt,
-      updatedAt: u.updatedAt,
-    };
-  }));
+  const enriched = await Promise.all(
+    allUsers.map(async (u) => {
+      const buckets = await db.select().from(storageBuckets).where(eq(storageBuckets.userId, u.id)).all();
+      const fileCount = await db
+        .select({ id: files.id })
+        .from(files)
+        .where(and(eq(files.userId, u.id), isNull(files.deletedAt)))
+        .all();
+      return {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        role: u.role,
+        storageQuota: u.storageQuota,
+        storageUsed: u.storageUsed,
+        fileCount: fileCount.length,
+        bucketCount: buckets.length,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+      };
+    })
+  );
 
   return c.json({ success: true, data: enriched });
 });
@@ -119,7 +130,10 @@ app.patch('/users/:id', async (c) => {
   const body = await c.req.json();
   const result = patchUserSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
@@ -149,7 +163,10 @@ app.delete('/users/:id', async (c) => {
   const id = c.req.param('id');
 
   if (id === adminId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不能删除自己的账户' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不能删除自己的账户' } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
@@ -171,16 +188,18 @@ app.get('/registration', async (c) => {
 
   // List active invite codes
   const list = await c.env.KV.list({ prefix: INVITE_PREFIX });
-  const codes = await Promise.all(list.keys.map(async ({ name }) => {
-    const raw = await c.env.KV.get(name);
-    const code = name.replace(INVITE_PREFIX, '');
-    try {
-      const meta = raw ? JSON.parse(raw) : {};
-      return { code, ...meta };
-    } catch {
-      return { code, usedBy: null, createdAt: null };
-    }
-  }));
+  const codes = await Promise.all(
+    list.keys.map(async ({ name }) => {
+      const raw = await c.env.KV.get(name);
+      const code = name.replace(INVITE_PREFIX, '');
+      try {
+        const meta = raw ? JSON.parse(raw) : {};
+        return { code, ...meta };
+      } catch {
+        return { code, usedBy: null, createdAt: null };
+      }
+    })
+  );
 
   return c.json({ success: true, data: { ...config, inviteCodes: codes } });
 });
@@ -191,7 +210,10 @@ app.put('/registration', async (c) => {
   const body = await c.req.json();
   const result = registrationSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const current = await getRegConfig(c.env.KV);
@@ -216,7 +238,7 @@ app.post('/registration/codes', async (c) => {
     await c.env.KV.put(
       `${INVITE_PREFIX}${code}`,
       JSON.stringify({ usedBy: null, createdAt: now }),
-      { expirationTtl: 60 * 60 * 24 * 30 }, // 30 days
+      { expirationTtl: 60 * 60 * 24 * 30 } // 30 days
     );
     codes.push(code);
   }
@@ -286,28 +308,36 @@ app.get('/audit-logs', async (c) => {
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [items, countResult] = await Promise.all([
-    db.select().from(auditLogs)
+    db
+      .select()
+      .from(auditLogs)
       .where(whereClause)
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit)
       .offset((page - 1) * limit)
       .all(),
-    db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(whereClause).get(),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(auditLogs)
+      .where(whereClause)
+      .get(),
   ]);
 
   const total = countResult?.count ?? 0;
 
-  const enrichedItems = await Promise.all(items.map(async (log) => {
-    let userEmail = null;
-    if (log.userId) {
-      const user = await db.select({ email: users.email }).from(users).where(eq(users.id, log.userId)).get();
-      userEmail = user?.email ?? null;
-    }
-    return {
-      ...log,
-      userEmail,
-    };
-  }));
+  const enrichedItems = await Promise.all(
+    items.map(async (log) => {
+      let userEmail = null;
+      if (log.userId) {
+        const user = await db.select({ email: users.email }).from(users).where(eq(users.id, log.userId)).get();
+        userEmail = user?.email ?? null;
+      }
+      return {
+        ...log,
+        userEmail,
+      };
+    })
+  );
 
   return c.json({
     success: true,

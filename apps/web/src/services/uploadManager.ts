@@ -1,7 +1,7 @@
 /**
  * uploadManager.ts
  * 全局上传任务管理器
- * 
+ *
  * 功能:
  * - 跟踪所有上传任务
  * - 支持暂停/继续上传
@@ -48,9 +48,7 @@ class UploadManager {
   }
 
   private updateBeforeUnload() {
-    const activeJobs = Array.from(this.jobs.values()).filter(
-      (j) => j.status === 'uploading' || j.status === 'pending'
-    );
+    const activeJobs = Array.from(this.jobs.values()).filter((j) => j.status === 'uploading' || j.status === 'pending');
     this.hasActiveUploads = activeJobs.length > 0;
   }
 

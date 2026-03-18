@@ -1,14 +1,14 @@
 /**
  * presignUpload.ts
  * 预签名上传服务
- * 
+ *
  * 功能:
  * - 小文件直接上传（≤100MB）
  * - 大文件分片上传（>100MB）
  * - 上传进度跟踪
  * - 断点续传支持
  * - CORS代理回退
- * 
+ *
  * 上传策略:
  * 1. 小文件：获取预签名URL -> 直接PUT到S3 -> 确认上传
  * 2. 大文件：初始化分片 -> 逐片上传 -> 完成上传
@@ -62,11 +62,9 @@ function authHeaders(): Record<string, string> {
 }
 
 async function apiPost<T>(path: string, data: unknown): Promise<T> {
-  const res = await axios.post<{ success: boolean; data: T; error?: { message: string } }>(
-    `${API_BASE}${path}`,
-    data,
-    { headers: authHeaders() },
-  );
+  const res = await axios.post<{ success: boolean; data: T; error?: { message: string } }>(`${API_BASE}${path}`, data, {
+    headers: authHeaders(),
+  });
   if (!res.data.success) {
     throw new Error(res.data.error?.message || `API error at ${path}`);
   }
@@ -118,7 +116,12 @@ export async function presignUpload({
 // ── Single presigned PUT upload ────────────────────────────────────────────
 
 async function singlePresignUpload({
-  file, parentId, bucketId, onProgress, onFallback, signal,
+  file,
+  parentId,
+  bucketId,
+  onProgress,
+  onFallback,
+  signal,
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
@@ -173,21 +176,28 @@ let corsErrorDetected = false;
 function isCorsError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    return msg.includes('cors') || 
-           msg.includes('network error') || 
-           msg.includes('failed to fetch') ||
-           msg.includes('网络错误');
+    return (
+      msg.includes('cors') ||
+      msg.includes('network error') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('网络错误')
+    );
   }
   return false;
 }
 
 async function multipartUpload({
-  file, parentId, bucketId, onProgress, onFallback, signal,
+  file,
+  parentId,
+  bucketId,
+  onProgress,
+  onFallback,
+  signal,
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
   const totalParts = Math.ceil(file.size / PART_SIZE);
-  
+
   // 使用 /api/tasks/create 创建任务记录，这样可以在任务页面追踪
   const init = await apiPost<PresignMultipartInitResponse & { taskId?: string }>('/api/tasks/create', {
     fileName: file.name,
@@ -219,7 +229,9 @@ async function multipartUpload({
       } else {
         await apiPost('/api/presign/multipart/abort', { r2Key, uploadId, bucketId: resolvedBucketId });
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   try {
@@ -232,7 +244,7 @@ async function multipartUpload({
 
       const batchParts = Array.from(
         { length: Math.min(MAX_CONCURRENT_PARTS, totalParts - batch) },
-        (_, i) => batch + i + 1,
+        (_, i) => batch + i + 1
       );
 
       const batchResults = await Promise.all(
@@ -262,10 +274,15 @@ async function multipartUpload({
             }
 
             try {
-              etag = await uploadPart(partUrl, chunk, (partBytes) => {
-                uploadedBytes += partBytes;
-                onProgress?.(Math.round((uploadedBytes / file.size) * 100));
-              }, signal);
+              etag = await uploadPart(
+                partUrl,
+                chunk,
+                (partBytes) => {
+                  uploadedBytes += partBytes;
+                  onProgress?.(Math.round((uploadedBytes / file.size) * 100));
+                },
+                signal
+              );
             } catch (error) {
               if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
               // 检测 CORS 错误，切换到代理模式
@@ -281,7 +298,7 @@ async function multipartUpload({
           }
 
           return { partNumber, etag };
-        }),
+        })
       );
 
       parts.push(...batchResults);
@@ -309,7 +326,7 @@ async function proxyUploadPartForTask(
   taskId: string,
   partNumber: number,
   chunk: Blob,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<string> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
@@ -318,14 +335,14 @@ async function proxyUploadPartForTask(
   formData.append('partNumber', String(partNumber));
   formData.append('chunk', chunk);
 
-  const res = await axios.post<{ success: boolean; data: { partNumber: number; etag: string }; error?: { message: string } }>(
-    `${API_BASE}/api/tasks/part-proxy`,
-    formData,
-    { 
-      headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
-      signal,
-    },
-  );
+  const res = await axios.post<{
+    success: boolean;
+    data: { partNumber: number; etag: string };
+    error?: { message: string };
+  }>(`${API_BASE}/api/tasks/part-proxy`, formData, {
+    headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+    signal,
+  });
 
   if (!res.data.success) {
     throw new Error(res.data.error?.message || '代理分片上传失败');
@@ -343,7 +360,7 @@ function directPut(
   body: Blob | ArrayBuffer,
   contentType: string,
   onProgress?: (percent: number) => void,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -396,7 +413,7 @@ function uploadPart(
   url: string,
   chunk: Blob,
   onChunkProgress?: (bytes: number) => void,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -463,7 +480,13 @@ interface ProxyUploadOptions {
   signal?: AbortSignal;
 }
 
-async function proxyUpload({ file, parentId, bucketId, onProgress, signal }: ProxyUploadOptions): Promise<UploadedFile> {
+async function proxyUpload({
+  file,
+  parentId,
+  bucketId,
+  onProgress,
+  signal,
+}: ProxyUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
   const formData = new FormData();
@@ -482,7 +505,7 @@ async function proxyUpload({ file, parentId, bucketId, onProgress, signal }: Pro
           onProgress(Math.round((e.loaded / e.total) * 100));
         }
       },
-    },
+    }
   );
 
   if (!res.data.success) {
@@ -526,10 +549,10 @@ export async function getPresignedDownloadUrl(fileId: string): Promise<PresignDo
 export async function getPresignedPreviewUrl(fileId: string): Promise<PresignDownloadResult> {
   try {
     const token = useAuthStore.getState().token;
-    const res = await axios.get<{ success: boolean; data: { useProxy?: boolean; proxyUrl?: string; previewUrl?: string; mimeType?: string } }>(
-      `${API_BASE}/api/presign/preview/${fileId}`,
-      { headers: authHeaders() },
-    );
+    const res = await axios.get<{
+      success: boolean;
+      data: { useProxy?: boolean; proxyUrl?: string; previewUrl?: string; mimeType?: string };
+    }>(`${API_BASE}/api/presign/preview/${fileId}`, { headers: authHeaders() });
     if (res.data.success && res.data.data) {
       const d = res.data.data;
       if (d.useProxy) {
@@ -537,7 +560,9 @@ export async function getPresignedPreviewUrl(fileId: string): Promise<PresignDow
       }
       return { useProxy: false, url: d.previewUrl!, mimeType: d.mimeType };
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
 
   const token = useAuthStore.getState().token;
   return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/preview?token=${token}` };

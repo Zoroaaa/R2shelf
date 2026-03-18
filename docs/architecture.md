@@ -74,35 +74,35 @@ OSSshelf/
 
 ### 前端 (apps/web)
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| React | ^18.2.0 | UI 框架 |
-| TypeScript | ^5.3.0 | 类型安全 |
-| Vite | ^5.1.0 | 构建工具 |
-| Tailwind CSS | ^3.4.0 | 样式框架 |
-| Zustand | ^4.5.0 | 状态管理 |
-| React Query | ^5.24.0 | 服务端状态 |
-| React Router | ^6.22.0 | 路由管理 |
-| Radix UI | ^1.0.x | 无障碍组件 |
-| Lucide | ^0.344.0 | 图标库 |
+| 技术         | 版本     | 用途       |
+| ------------ | -------- | ---------- |
+| React        | ^18.2.0  | UI 框架    |
+| TypeScript   | ^5.3.0   | 类型安全   |
+| Vite         | ^5.1.0   | 构建工具   |
+| Tailwind CSS | ^3.4.0   | 样式框架   |
+| Zustand      | ^4.5.0   | 状态管理   |
+| React Query  | ^5.24.0  | 服务端状态 |
+| React Router | ^6.22.0  | 路由管理   |
+| Radix UI     | ^1.0.x   | 无障碍组件 |
+| Lucide       | ^0.344.0 | 图标库     |
 
 ### 后端 (apps/api)
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| Hono | ^4.0.0 | Web 框架 |
+| 技术               | 版本    | 用途              |
+| ------------------ | ------- | ----------------- |
+| Hono               | ^4.0.0  | Web 框架          |
 | Cloudflare Workers | ^3.24.0 | Serverless 运行时 |
-| Drizzle ORM | ^0.29.0 | 数据库 ORM |
-| Zod | ^3.22.0 | 参数验证 |
+| Drizzle ORM        | ^0.29.0 | 数据库 ORM        |
+| Zod                | ^3.22.0 | 参数验证          |
 
 ### 云服务
 
-| 服务 | 用途 |
-|------|------|
-| Cloudflare D1 | SQLite 数据库 |
-| Cloudflare KV | 键值存储（可选） |
-| 多厂商对象存储 | 文件内容存储 |
-| Cloudflare Cron | 定时任务 |
+| 服务            | 用途             |
+| --------------- | ---------------- |
+| Cloudflare D1   | SQLite 数据库    |
+| Cloudflare KV   | 键值存储（可选） |
+| 多厂商对象存储  | 文件内容存储     |
+| Cloudflare Cron | 定时任务         |
 
 ## 核心模块
 
@@ -151,20 +151,20 @@ OSSshelf/
 
 ### 核心表结构
 
-| 表名 | 用途 |
-|------|------|
-| users | 用户数据 |
-| files | 文件/文件夹元数据 |
-| storage_buckets | 存储桶配置 |
-| shares | 分享链接 |
-| file_tags | 文件标签 |
-| file_permissions | 文件权限 |
-| audit_logs | 审计日志 |
-| upload_tasks | 上传任务 |
-| download_tasks | 下载任务 |
-| user_devices | 用户设备 |
-| login_attempts | 登录尝试 |
-| webdav_sessions | WebDAV 会话 |
+| 表名             | 用途              |
+| ---------------- | ----------------- |
+| users            | 用户数据          |
+| files            | 文件/文件夹元数据 |
+| storage_buckets  | 存储桶配置        |
+| shares           | 分享链接          |
+| file_tags        | 文件标签          |
+| file_permissions | 文件权限          |
+| audit_logs       | 审计日志          |
+| upload_tasks     | 上传任务          |
+| download_tasks   | 下载任务          |
+| user_devices     | 用户设备          |
+| login_attempts   | 登录尝试          |
+| webdav_sessions  | WebDAV 会话       |
 
 ## 安全设计
 

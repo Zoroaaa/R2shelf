@@ -1,13 +1,13 @@
 /**
  * useFolderUpload.ts
  * 文件夹上传 Hook
- * 
+ *
  * 功能:
  * - 支持拖拽整个文件夹
  * - 解析webkitRelativePath重建目录结构
  * - 按正确顺序创建文件夹
  * - 批量上传文件
- * 
+ *
  * 用法:
  *   const { uploadFolderEntries } = useFolderUpload({ currentFolderId, onProgress, onDone });
  *   <div onDrop={(e) => uploadFolderEntries(e.dataTransfer.items)} />
@@ -61,7 +61,10 @@ export function useFolderUpload({
           await new Promise<void>((resolve) => {
             const readAll = () => {
               dirReader.readEntries(async (entries) => {
-                if (entries.length === 0) { resolve(); return; }
+                if (entries.length === 0) {
+                  resolve();
+                  return;
+                }
                 for (const e of entries) {
                   await traverseEntry(e, path ? `${path}/${entry.name}` : entry.name);
                 }
@@ -108,8 +111,8 @@ export function useFolderUpload({
         if (!name) continue;
         const parentPath = parts.slice(0, -1).join('/');
         const parentId = parentPath
-          ? folderIdMap.get(parentPath) ?? currentFolderId ?? null
-          : currentFolderId ?? null;
+          ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
+          : (currentFolderId ?? null);
 
         try {
           const res = await filesApi.createFolder(name, parentId);
@@ -127,8 +130,8 @@ export function useFolderUpload({
         const parts = relativePath.split('/');
         const parentPath = parts.slice(0, -1).join('/');
         const parentId = parentPath
-          ? folderIdMap.get(parentPath) ?? currentFolderId ?? null
-          : currentFolderId ?? null;
+          ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
+          : (currentFolderId ?? null);
 
         const key = `${file.name}-${Date.now()}-${Math.random()}`;
         onFileStart?.(file.name, key);

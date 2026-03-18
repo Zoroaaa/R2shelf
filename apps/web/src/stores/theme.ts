@@ -16,7 +16,7 @@ const getSystemTheme = (): 'light' | 'dark' => {
 const applyTheme = (theme: Theme) => {
   const root = document.documentElement;
   const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
-  
+
   if (effectiveTheme === 'dark') {
     root.classList.add('dark');
   } else {

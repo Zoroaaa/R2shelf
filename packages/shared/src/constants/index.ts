@@ -17,7 +17,13 @@ export const ALLOWED_MIME_TYPES: Record<string, string[]> = {
   ],
   text: ['text/plain', 'text/html', 'text/css', 'text/javascript', 'text/markdown', 'text/csv'],
   code: ['application/json', 'application/xml', 'application/x-yaml', 'application/x-sh'],
-  archive: ['application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/x-tar', 'application/gzip'],
+  archive: [
+    'application/zip',
+    'application/x-rar-compressed',
+    'application/x-7z-compressed',
+    'application/x-tar',
+    'application/gzip',
+  ],
 };
 
 export const FILE_TYPE_ICONS: Record<string, string> = {

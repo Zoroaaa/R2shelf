@@ -9,14 +9,16 @@
 ## 统一响应格式
 
 ### 成功响应
+
 ```json
 {
   "success": true,
-  "data": { }
+  "data": {}
 }
 ```
 
 ### 错误响应
+
 ```json
 {
   "success": false,
@@ -29,23 +31,24 @@
 
 ## 错误码列表
 
-| 错误码 | 描述 |
-|--------|------|
-| UNAUTHORIZED | 未授权，Token 无效或过期 |
-| FORBIDDEN | 禁止访问，权限不足 |
-| NOT_FOUND | 资源不存在 |
-| VALIDATION_ERROR | 参数验证失败 |
-| FILE_TOO_LARGE | 文件大小超过限制 |
-| STORAGE_EXCEEDED | 存储空间不足 |
-| SHARE_EXPIRED | 分享链接已过期 |
-| LOGIN_LOCKED | 登录已被锁定 |
-| PERMISSION_DENIED | 权限不足 |
+| 错误码            | 描述                     |
+| ----------------- | ------------------------ |
+| UNAUTHORIZED      | 未授权，Token 无效或过期 |
+| FORBIDDEN         | 禁止访问，权限不足       |
+| NOT_FOUND         | 资源不存在               |
+| VALIDATION_ERROR  | 参数验证失败             |
+| FILE_TOO_LARGE    | 文件大小超过限制         |
+| STORAGE_EXCEEDED  | 存储空间不足             |
+| SHARE_EXPIRED     | 分享链接已过期           |
+| LOGIN_LOCKED      | 登录已被锁定             |
+| PERMISSION_DENIED | 权限不足                 |
 
 ---
 
 ## 认证接口
 
 ### 用户注册
+
 ```http
 POST /api/auth/register
 Content-Type: application/json
@@ -58,6 +61,7 @@ Content-Type: application/json
 ```
 
 ### 用户登录
+
 ```http
 POST /api/auth/login
 Content-Type: application/json
@@ -71,12 +75,14 @@ Content-Type: application/json
 ```
 
 ### 获取当前用户信息
+
 ```http
 GET /api/auth/me
 Authorization: Bearer <token>
 ```
 
 ### 更新用户信息
+
 ```http
 PUT /api/auth/profile
 Authorization: Bearer <token>
@@ -90,12 +96,14 @@ Content-Type: application/json
 ```
 
 ### 获取已登录设备
+
 ```http
 GET /api/auth/devices
 Authorization: Bearer <token>
 ```
 
 ### 注销设备
+
 ```http
 DELETE /api/auth/devices/<deviceId>
 Authorization: Bearer <token>
@@ -106,12 +114,14 @@ Authorization: Bearer <token>
 ## 文件接口
 
 ### 列出文件
+
 ```http
 GET /api/files?parentId=<folderId>&search=<keyword>&sortBy=name&sortOrder=asc
 Authorization: Bearer <token>
 ```
 
 ### 创建文件夹
+
 ```http
 POST /api/files
 Authorization: Bearer <token>
@@ -125,6 +135,7 @@ Content-Type: application/json
 ```
 
 ### 上传文件（代理模式）
+
 ```http
 POST /api/files/upload
 Authorization: Bearer <token>
@@ -136,12 +147,14 @@ bucketId: <存储桶ID>
 ```
 
 ### 获取文件信息
+
 ```http
 GET /api/files/<fileId>
 Authorization: Bearer <token>
 ```
 
 ### 更新文件/文件夹
+
 ```http
 PUT /api/files/<fileId>
 Authorization: Bearer <token>
@@ -154,12 +167,14 @@ Content-Type: application/json
 ```
 
 ### 删除文件/文件夹（移至回收站）
+
 ```http
 DELETE /api/files/<fileId>
 Authorization: Bearer <token>
 ```
 
 ### 下载文件
+
 ```http
 GET /api/files/<fileId>/download
 Authorization: Bearer <token>
@@ -170,24 +185,28 @@ Authorization: Bearer <token>
 ## 回收站接口
 
 ### 列出回收站文件
+
 ```http
 GET /api/files/trash
 Authorization: Bearer <token>
 ```
 
 ### 恢复文件
+
 ```http
 POST /api/files/<fileId>/restore
 Authorization: Bearer <token>
 ```
 
 ### 永久删除
+
 ```http
 DELETE /api/files/<fileId>/permanent
 Authorization: Bearer <token>
 ```
 
 ### 清空回收站
+
 ```http
 DELETE /api/files/trash/empty
 Authorization: Bearer <token>
@@ -198,12 +217,14 @@ Authorization: Bearer <token>
 ## 存储桶接口
 
 ### 列出存储桶
+
 ```http
 GET /api/buckets
 Authorization: Bearer <token>
 ```
 
 ### 创建存储桶
+
 ```http
 POST /api/buckets
 Authorization: Bearer <token>
@@ -221,6 +242,7 @@ Content-Type: application/json
 ```
 
 ### 更新存储桶
+
 ```http
 PUT /api/buckets/<bucketId>
 Authorization: Bearer <token>
@@ -233,6 +255,7 @@ Content-Type: application/json
 ```
 
 ### 删除存储桶
+
 ```http
 DELETE /api/buckets/<bucketId>
 Authorization: Bearer <token>
@@ -243,6 +266,7 @@ Authorization: Bearer <token>
 ## 预签名上传接口
 
 ### 获取上传预签名 URL
+
 ```http
 POST /api/presign/upload
 Authorization: Bearer <token>
@@ -258,6 +282,7 @@ Content-Type: application/json
 ```
 
 ### 分片上传初始化
+
 ```http
 POST /api/presign/multipart/init
 Authorization: Bearer <token>
@@ -272,6 +297,7 @@ Content-Type: application/json
 ```
 
 ### 获取分片上传 URL
+
 ```http
 POST /api/presign/multipart/part
 Authorization: Bearer <token>
@@ -286,6 +312,7 @@ Content-Type: application/json
 ```
 
 ### 完成分片上传
+
 ```http
 POST /api/presign/multipart/complete
 Authorization: Bearer <token>
@@ -309,6 +336,7 @@ Content-Type: application/json
 ## 分享接口
 
 ### 创建分享
+
 ```http
 POST /api/share
 Authorization: Bearer <token>
@@ -323,11 +351,13 @@ Content-Type: application/json
 ```
 
 ### 获取分享信息
+
 ```http
 GET /api/share/<shareId>
 ```
 
 ### 访问分享（需要密码时）
+
 ```http
 POST /api/share/<shareId>/access
 Content-Type: application/json
@@ -338,17 +368,20 @@ Content-Type: application/json
 ```
 
 ### 下载分享文件
+
 ```http
 GET /api/share/<shareId>/download
 ```
 
 ### 列出我的分享
+
 ```http
 GET /api/share
 Authorization: Bearer <token>
 ```
 
 ### 删除分享
+
 ```http
 DELETE /api/share/<shareId>
 Authorization: Bearer <token>
@@ -359,6 +392,7 @@ Authorization: Bearer <token>
 ## 批量操作接口
 
 ### 批量删除
+
 ```http
 POST /api/batch/delete
 Authorization: Bearer <token>
@@ -370,6 +404,7 @@ Content-Type: application/json
 ```
 
 ### 批量移动
+
 ```http
 POST /api/batch/move
 Authorization: Bearer <token>
@@ -382,6 +417,7 @@ Content-Type: application/json
 ```
 
 ### 批量复制
+
 ```http
 POST /api/batch/copy
 Authorization: Bearer <token>
@@ -398,12 +434,14 @@ Content-Type: application/json
 ## 搜索接口
 
 ### 搜索文件
+
 ```http
 GET /api/search?q=keyword&type=all&tags=tag1,tag2
 Authorization: Bearer <token>
 ```
 
 ### 高级搜索
+
 ```http
 POST /api/search/advanced
 Authorization: Bearer <token>
@@ -425,6 +463,7 @@ Content-Type: application/json
 ## 权限与标签接口
 
 ### 授予权限
+
 ```http
 POST /api/permissions/grant
 Authorization: Bearer <token>
@@ -438,6 +477,7 @@ Content-Type: application/json
 ```
 
 ### 撤销权限
+
 ```http
 POST /api/permissions/revoke
 Authorization: Bearer <token>
@@ -450,6 +490,7 @@ Content-Type: application/json
 ```
 
 ### 添加标签
+
 ```http
 POST /api/permissions/tags/add
 Authorization: Bearer <token>
@@ -463,6 +504,7 @@ Content-Type: application/json
 ```
 
 ### 移除标签
+
 ```http
 POST /api/permissions/tags/remove
 Authorization: Bearer <token>
@@ -479,6 +521,7 @@ Content-Type: application/json
 ## 上传任务接口
 
 ### 创建上传任务
+
 ```http
 POST /api/tasks/create
 Authorization: Bearer <token>
@@ -494,6 +537,7 @@ Content-Type: application/json
 ```
 
 ### 获取分片上传 URL
+
 ```http
 POST /api/tasks/part
 Authorization: Bearer <token>
@@ -506,6 +550,7 @@ Content-Type: application/json
 ```
 
 ### 完成上传任务
+
 ```http
 POST /api/tasks/complete
 Authorization: Bearer <token>
@@ -520,6 +565,7 @@ Content-Type: application/json
 ```
 
 ### 列出上传任务
+
 ```http
 GET /api/tasks/list
 Authorization: Bearer <token>
@@ -530,6 +576,7 @@ Authorization: Bearer <token>
 ## 离线下载接口
 
 ### 创建下载任务
+
 ```http
 POST /api/downloads/create
 Authorization: Bearer <token>
@@ -544,12 +591,14 @@ Content-Type: application/json
 ```
 
 ### 列出下载任务
+
 ```http
 GET /api/downloads/list
 Authorization: Bearer <token>
 ```
 
 ### 重试失败任务
+
 ```http
 POST /api/downloads/<taskId>/retry
 Authorization: Bearer <token>
@@ -560,18 +609,21 @@ Authorization: Bearer <token>
 ## 预览接口
 
 ### 获取预览信息
+
 ```http
 GET /api/preview/<fileId>/info
 Authorization: Bearer <token>
 ```
 
 ### 获取原始内容
+
 ```http
 GET /api/preview/<fileId>/raw
 Authorization: Bearer <token>
 ```
 
 ### 获取缩略图
+
 ```http
 GET /api/preview/<fileId>/thumbnail
 Authorization: Bearer <token>
@@ -582,24 +634,28 @@ Authorization: Bearer <token>
 ## 管理员接口
 
 ### 获取审计日志
+
 ```http
 GET /api/admin/audit-logs?page=1&limit=50
 Authorization: Bearer <token>
 ```
 
 ### 获取系统统计
+
 ```http
 GET /api/admin/stats
 Authorization: Bearer <token>
 ```
 
 ### 获取用户列表
+
 ```http
 GET /api/admin/users?page=1&limit=50
 Authorization: Bearer <token>
 ```
 
 ### 更新用户
+
 ```http
 PUT /api/admin/users/<userId>
 Authorization: Bearer <token>
@@ -619,21 +675,21 @@ WebDAV 协议端点: `/dav`
 
 ### 连接配置
 
-| 配置项 | 值 |
-|--------|-----|
+| 配置项     | 值                            |
+| ---------- | ----------------------------- |
 | 服务器地址 | `https://your-domain.com/dav` |
-| 用户名 | 注册邮箱 |
-| 密码 | 账户密码 |
-| 认证方式 | Basic Auth |
+| 用户名     | 注册邮箱                      |
+| 密码       | 账户密码                      |
+| 认证方式   | Basic Auth                    |
 
 ### 支持的操作
 
-| 操作 | 方法 | 描述 |
-|------|------|------|
-| 列出目录 | PROPFIND | Depth: 0 (当前), 1 (包含子项) |
-| 下载文件 | GET | - |
-| 上传文件 | PUT | 自动创建父目录 |
-| 创建目录 | MKCOL | - |
-| 删除 | DELETE | 永久删除 |
-| 移动/重命名 | MOVE | 需要 Destination 头 |
-| 复制 | COPY | 需要 Destination 头 |
+| 操作        | 方法     | 描述                          |
+| ----------- | -------- | ----------------------------- |
+| 列出目录    | PROPFIND | Depth: 0 (当前), 1 (包含子项) |
+| 下载文件    | GET      | -                             |
+| 上传文件    | PUT      | 自动创建父目录                |
+| 创建目录    | MKCOL    | -                             |
+| 删除        | DELETE   | 永久删除                      |
+| 移动/重命名 | MOVE     | 需要 Destination 头           |
+| 复制        | COPY     | 需要 Destination 头           |

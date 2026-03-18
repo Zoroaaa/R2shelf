@@ -1,7 +1,7 @@
 /**
  * useResponsive.ts
  * 响应式布局 Hook
- * 
+ *
  * 功能:
  * - 检测屏幕尺寸
  * - 判断设备类型
@@ -69,7 +69,7 @@ export function useResponsive(): ResponsiveInfo {
     };
 
     window.addEventListener('resize', handleResize);
-    
+
     const mediaQuery = window.matchMedia('(orientation: portrait)');
     mediaQuery.addEventListener('change', handleResize);
 
@@ -93,10 +93,10 @@ export function useMediaQuery(query: string): boolean {
   useEffect(() => {
     const mediaQuery = window.matchMedia(query);
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    
+
     setMatches(mediaQuery.matches);
     mediaQuery.addEventListener('change', handler);
-    
+
     return () => mediaQuery.removeEventListener('change', handler);
   }, [query]);
 

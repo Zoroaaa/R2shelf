@@ -1,7 +1,7 @@
 /**
  * FilePreview.tsx
  * 文件预览组件
- * 
+ *
  * 功能:
  * - 图片/视频/音频预览
  * - PDF文档预览
@@ -54,10 +54,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isVideo = file.mimeType?.startsWith('video/');
   const isAudio = file.mimeType?.startsWith('audio/');
   const isPdf = file.mimeType === 'application/pdf';
-  const isText = file.mimeType?.startsWith('text/') || 
-                 file.mimeType === 'application/json' || 
-                 file.mimeType === 'application/xml' ||
-                 previewInfo?.previewType === 'code';
+  const isText =
+    file.mimeType?.startsWith('text/') ||
+    file.mimeType === 'application/json' ||
+    file.mimeType === 'application/xml' ||
+    previewInfo?.previewType === 'code';
   const isOffice = previewInfo?.previewType === 'office';
 
   useEffect(() => {
@@ -68,7 +69,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setPreviewInfo(null);
     setOfficeContent(null);
 
-    previewApi.getInfo(file.id)
+    previewApi
+      .getInfo(file.id)
       .then((res) => {
         if (!cancelled && res.data.data) {
           setPreviewInfo(res.data.data);
@@ -76,21 +78,26 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       })
       .catch(() => {});
 
-    getPresignedPreviewUrl(file.id).then(({ url }) => {
-      if (!cancelled) setResolvedUrl(url);
-    }).catch(() => {
-      if (!cancelled) {
-        setResolvedUrl(`${filesApi.previewUrl(file.id)}?token=${encodeURIComponent(token)}`);
-      }
-    });
+    getPresignedPreviewUrl(file.id)
+      .then(({ url }) => {
+        if (!cancelled) setResolvedUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedUrl(`${filesApi.previewUrl(file.id)}?token=${encodeURIComponent(token)}`);
+        }
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [file.id, token]);
 
   useEffect(() => {
     if (!isText || !canPreview || !resolvedUrl) return;
-    
-    previewApi.getRaw(file.id)
+
+    previewApi
+      .getRaw(file.id)
       .then((res) => {
         if (res.data.data?.content) {
           setTextContent(res.data.data.content);
@@ -106,8 +113,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   useEffect(() => {
     if (!isOffice || !canPreview) return;
-    
-    previewApi.getOffice(file.id)
+
+    previewApi
+      .getOffice(file.id)
       .then((res) => {
         if (res.data.data) {
           setOfficeContent({
@@ -120,7 +128,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [file.id, isOffice, canPreview]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
@@ -129,7 +139,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     const mimeType = file.mimeType || '';
     if (mimeType.includes('word') || mimeType.includes('document')) return <FileText className="h-6 w-6" />;
     if (mimeType.includes('excel') || mimeType.includes('sheet')) return <FileSpreadsheet className="h-6 w-6" />;
-    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return <Presentation className="h-6 w-6" />;
+    if (mimeType.includes('powerpoint') || mimeType.includes('presentation'))
+      return <Presentation className="h-6 w-6" />;
     return <FileText className="h-6 w-6" />;
   };
 
@@ -145,12 +156,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           isImage || isVideo
             ? 'w-[90vw] max-w-5xl max-h-[90vh]'
             : isAudio
-            ? 'w-full max-w-md'
-            : isPdf
-            ? 'w-[90vw] max-w-5xl h-[90vh]'
-            : isText
-            ? 'w-[90vw] max-w-3xl max-h-[80vh]'
-            : 'w-full max-w-md'
+              ? 'w-full max-w-md'
+              : isPdf
+                ? 'w-[90vw] max-w-5xl h-[90vh]'
+                : isText
+                  ? 'w-[90vw] max-w-3xl max-h-[80vh]'
+                  : 'w-full max-w-md'
         )}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b flex-shrink-0">
@@ -204,12 +215,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               onError={() => setLoadError(true)}
             />
           ) : isVideo ? (
-            <video
-              src={resolvedUrl}
-              controls
-              className="max-w-full max-h-full"
-              onError={() => setLoadError(true)}
-            />
+            <video src={resolvedUrl} controls className="max-w-full max-h-full" onError={() => setLoadError(true)} />
           ) : isAudio ? (
             <div className="p-8 w-full space-y-4">
               <div className="flex items-center justify-center">
@@ -230,10 +236,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           ) : isText ? (
             <div className="w-full h-full overflow-auto p-4">
               {textContent !== null ? (
-                <pre className={cn(
-                  "text-xs font-mono whitespace-pre-wrap leading-relaxed",
-                  previewInfo?.previewType === 'code' ? 'text-green-600 dark:text-green-400' : 'text-foreground/80'
-                )}>
+                <pre
+                  className={cn(
+                    'text-xs font-mono whitespace-pre-wrap leading-relaxed',
+                    previewInfo?.previewType === 'code' ? 'text-green-600 dark:text-green-400' : 'text-foreground/80'
+                  )}
+                >
                   {textContent}
                 </pre>
               ) : (
@@ -248,9 +256,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               <div className="text-center">
                 <p className="font-medium">{file.name}</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {file.mimeType?.includes('word') ? 'Word 文档' :
-                   file.mimeType?.includes('excel') ? 'Excel 表格' :
-                   file.mimeType?.includes('powerpoint') ? 'PowerPoint 演示文稿' : 'Office 文档'}
+                  {file.mimeType?.includes('word')
+                    ? 'Word 文档'
+                    : file.mimeType?.includes('excel')
+                      ? 'Excel 表格'
+                      : file.mimeType?.includes('powerpoint')
+                        ? 'PowerPoint 演示文稿'
+                        : 'Office 文档'}
                 </p>
               </div>
               <Button onClick={() => onDownload(file)}>

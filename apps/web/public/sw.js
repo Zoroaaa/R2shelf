@@ -1,6 +1,6 @@
 /**
  * Service Worker for OSSshelf
- * 
+ *
  * 功能:
  * - 离线缓存
  * - 预缓存静态资源
@@ -12,50 +12,36 @@ const CACHE_NAME = 'osshelf-v1';
 const STATIC_CACHE_NAME = 'osshelf-static-v1';
 const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v1';
 
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-];
+const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
 const CACHE_STRATEGIES = {
-  networkFirst: [
-    '/api/',
-  ],
-  cacheFirst: [
-    '/api/files/preview/',
-    '/api/files/thumbnail/',
-  ],
-  staleWhileRevalidate: [
-    '/api/buckets',
-    '/api/user',
-  ],
+  networkFirst: ['/api/'],
+  cacheFirst: ['/api/files/preview/', '/api/files/thumbnail/'],
+  staleWhileRevalidate: ['/api/buckets', '/api/user'],
 };
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing...');
-  
+
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME).then((cache) => {
       console.log('[SW] Precaching static assets');
       return cache.addAll(STATIC_ASSETS);
     })
   );
-  
+
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activating...');
-  
+
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
           .filter((name) => {
-            return name !== STATIC_CACHE_NAME && 
-                   name !== DYNAMIC_CACHE_NAME &&
-                   name !== CACHE_NAME;
+            return name !== STATIC_CACHE_NAME && name !== DYNAMIC_CACHE_NAME && name !== CACHE_NAME;
           })
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
@@ -64,7 +50,7 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
-  
+
   self.clients.claim();
 });
 
@@ -76,8 +62,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.startsWith('/api/files/download/') || 
-      url.pathname.includes('/presign')) {
+  if (url.pathname.startsWith('/api/files/download/') || url.pathname.includes('/presign')) {
     return;
   }
 
@@ -101,11 +86,13 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(networkFirst(request));
       return;
     }
-    
-    if (request.destination === 'style' || 
-        request.destination === 'script' ||
-        request.destination === 'image' ||
-        request.destination === 'font') {
+
+    if (
+      request.destination === 'style' ||
+      request.destination === 'script' ||
+      request.destination === 'image' ||
+      request.destination === 'font'
+    ) {
       event.respondWith(staleWhileRevalidate(request));
       return;
     }
@@ -117,43 +104,43 @@ self.addEventListener('fetch', (event) => {
 async function networkFirst(request) {
   try {
     const networkResponse = await fetch(request);
-    
+
     if (networkResponse.ok) {
       const cache = await caches.open(DYNAMIC_CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
-    
+
     return networkResponse;
   } catch (error) {
     const cachedResponse = await caches.match(request);
-    
+
     if (cachedResponse) {
       return cachedResponse;
     }
-    
+
     if (request.destination === 'document') {
       return caches.match('/');
     }
-    
+
     return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
   }
 }
 
 async function cacheFirst(request) {
   const cachedResponse = await caches.match(request);
-  
+
   if (cachedResponse) {
     return cachedResponse;
   }
-  
+
   try {
     const networkResponse = await fetch(request);
-    
+
     if (networkResponse.ok) {
       const cache = await caches.open(DYNAMIC_CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
-    
+
     return networkResponse;
   } catch (error) {
     return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
@@ -162,19 +149,21 @@ async function cacheFirst(request) {
 
 async function staleWhileRevalidate(request) {
   const cachedResponse = await caches.match(request);
-  
-  const fetchPromise = fetch(request).then((networkResponse) => {
-    if (networkResponse.ok) {
-      const responseToCache = networkResponse.clone();
-      caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-        cache.put(request, responseToCache);
-      });
-    }
-    return networkResponse;
-  }).catch(() => {
-    return cachedResponse || new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
-  });
-  
+
+  const fetchPromise = fetch(request)
+    .then((networkResponse) => {
+      if (networkResponse.ok) {
+        const responseToCache = networkResponse.clone();
+        caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
+          cache.put(request, responseToCache);
+        });
+      }
+      return networkResponse;
+    })
+    .catch(() => {
+      return cachedResponse || new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
+    });
+
   return cachedResponse || fetchPromise;
 }
 
@@ -182,13 +171,11 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-  
+
   if (event.data && event.data.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches.keys().then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((name) => caches.delete(name))
-        );
+        return Promise.all(cacheNames.map((name) => caches.delete(name)));
       })
     );
   }
@@ -206,9 +193,9 @@ async function processPendingUploads() {
 
 self.addEventListener('push', (event) => {
   if (!event.data) return;
-  
+
   const data = event.data.json();
-  
+
   const options = {
     body: data.body || '您有新的通知',
     icon: '/icons/icon-192x192.png',
@@ -219,17 +206,15 @@ self.addEventListener('push', (event) => {
     },
     actions: data.actions || [],
   };
-  
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'OSSshelf', options)
-  );
+
+  event.waitUntil(self.registration.showNotification(data.title || 'OSSshelf', options));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  
+
   const url = event.notification.data?.url || '/';
-  
+
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
       for (const client of clientList) {
@@ -237,7 +222,7 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      
+
       if (clients.openWindow) {
         return clients.openWindow(url);
       }

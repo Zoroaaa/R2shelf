@@ -1,7 +1,7 @@
 /**
  * tasks.ts
  * 上传任务路由
- * 
+ *
  * 功能:
  * - 创建上传任务
  * - 分片上传管理
@@ -13,7 +13,14 @@ import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, uploadTasks, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE, UPLOAD_TASK_EXPIRY, MULTIPART_THRESHOLD, UPLOAD_CHUNK_SIZE } from '@osshelf/shared';
+import {
+  ERROR_CODES,
+  MAX_FILE_SIZE,
+  UPLOAD_TASK_EXPIRY,
+  MULTIPART_THRESHOLD,
+  UPLOAD_CHUNK_SIZE,
+} from '@osshelf/shared';
+import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -46,16 +53,25 @@ const uploadPartSchema = z.object({
   partNumber: z.number().int().min(1).max(10000),
 });
 
-const completeTaskSchema = z.object({
-  taskId: z.string().min(1),
-  parts: z.array(z.object({
-    partNumber: z.number().int().min(1),
-    etag: z.string().min(1, 'etag 不能为空'),
-  })).min(1),
-}).refine((data) => {
-  const hasEmptyEtag = data.parts.some(p => !p.etag || p.etag.trim() === '');
-  return !hasEmptyEtag;
-}, { message: '所有分片的 etag 不能为空' });
+const completeTaskSchema = z
+  .object({
+    taskId: z.string().min(1),
+    parts: z
+      .array(
+        z.object({
+          partNumber: z.number().int().min(1),
+          etag: z.string().min(1, 'etag 不能为空'),
+        })
+      )
+      .min(1),
+  })
+  .refine(
+    (data) => {
+      const hasEmptyEtag = data.parts.some((p) => !p.etag || p.etag.trim() === '');
+      return !hasEmptyEtag;
+    },
+    { message: '所有分片的 etag 不能为空' }
+  );
 
 async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
@@ -66,30 +82,32 @@ async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
 async function checkFolderMimeTypeRestriction(
   db: ReturnType<typeof getDb>,
   parentId: string | null | undefined,
-  mimeType: string,
+  mimeType: string
 ): Promise<{ allowed: boolean; allowedTypes?: string[] }> {
   if (!parentId) return { allowed: true };
-  
+
   const { files } = await import('../db');
-  const parentFolder = await db.select().from(files)
+  const parentFolder = await db
+    .select()
+    .from(files)
     .where(and(eq(files.id, parentId), eq(files.isFolder, true)))
     .get();
-  
+
   if (!parentFolder || !parentFolder.allowedMimeTypes) {
     return { allowed: true };
   }
-  
+
   try {
     const allowedTypes: string[] = JSON.parse(parentFolder.allowedMimeTypes);
     if (allowedTypes.length === 0) return { allowed: true };
-    
+
     const isAllowed = allowedTypes.some((allowed) => {
       if (allowed.endsWith('/*')) {
         return mimeType.startsWith(allowed.slice(0, -1));
       }
       return mimeType === allowed;
     });
-    
+
     return { allowed: isAllowed, allowedTypes };
   } catch {
     return { allowed: true };
@@ -101,22 +119,28 @@ app.post('/create', async (c) => {
   const body = await c.req.json();
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
   if (!mimeCheck.allowed) {
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.VALIDATION_ERROR,
-        message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
       },
-    }, 400);
+      400
+    );
   }
 
   const user = await getUserOrFail(db, userId);
@@ -183,9 +207,7 @@ app.get('/list', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const tasks = await db.select().from(uploadTasks)
-    .where(eq(uploadTasks.userId, userId))
-    .all();
+  const tasks = await db.select().from(uploadTasks).where(eq(uploadTasks.userId, userId)).all();
 
   const activeTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'expired');
   const now = new Date();
@@ -205,14 +227,19 @@ app.post('/part', async (c) => {
   const body = await c.req.json();
   const result = uploadPartSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { taskId, partNumber } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -243,7 +270,10 @@ app.post('/part-proxy', async (c) => {
   const contentType = c.req.header('Content-Type') || '';
 
   if (!contentType.includes('multipart/form-data')) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } },
+      400
+    );
   }
 
   const formData = await c.req.formData();
@@ -256,9 +286,11 @@ app.post('/part-proxy', async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -281,7 +313,8 @@ app.post('/part-proxy', async (c) => {
   const uploadedParts = JSON.parse(task.uploadedParts || '[]');
   if (!uploadedParts.includes(partNumber)) {
     uploadedParts.push(partNumber);
-    await db.update(uploadTasks)
+    await db
+      .update(uploadTasks)
       .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
       .where(eq(uploadTasks.id, taskId));
   }
@@ -294,15 +327,20 @@ app.post('/complete', async (c) => {
   const body = await c.req.json();
   const result = completeTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { taskId, parts } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   try {
-    const task = await db.select().from(uploadTasks)
+    const task = await db
+      .select()
+      .from(uploadTasks)
       .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
       .get();
 
@@ -324,18 +362,24 @@ app.post('/complete', async (c) => {
     }
 
     if (!task.bucketId) {
-      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务缺少存储桶ID' } }, 400);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务缺少存储桶ID' } },
+        400
+      );
     }
 
     if (parts.length !== task.totalParts) {
       console.warn(`Parts count mismatch: expected ${task.totalParts}, got ${parts.length}`);
-      return c.json({ 
-        success: false, 
-        error: { 
-          code: ERROR_CODES.VALIDATION_ERROR, 
-          message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个` 
-        } 
-      }, 400);
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`,
+          },
+        },
+        400
+      );
     }
 
     const fileId = crypto.randomUUID();
@@ -346,16 +390,17 @@ app.post('/complete', async (c) => {
       await s3CompleteMultipartUpload(bucketConfig, task.r2Key, task.uploadId, parts as MultipartPart[]);
     } catch (s3Error: any) {
       console.error('S3 Complete Multipart Upload Error:', s3Error);
-      await db.update(uploadTasks)
-        .set({ status: 'failed', updatedAt: now })
-        .where(eq(uploadTasks.id, taskId));
-      return c.json({ 
-        success: false, 
-        error: { 
-          code: 'S3_ERROR', 
-          message: `合并分片失败: ${s3Error.message || '未知错误'}` 
-        } 
-      }, 500);
+      await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'S3_ERROR',
+            message: `合并分片失败: ${s3Error.message || '未知错误'}`,
+          },
+        },
+        500
+      );
     }
 
     const { files } = await import('../db');
@@ -379,16 +424,15 @@ app.post('/complete', async (c) => {
 
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
     if (user) {
-      await db.update(users)
+      await db
+        .update(users)
         .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
         .where(eq(users.id, userId));
     }
 
     await updateBucketStats(db, task.bucketId, task.fileSize, 1);
 
-    await db.update(uploadTasks)
-      .set({ status: 'completed', updatedAt: now })
-      .where(eq(uploadTasks.id, taskId));
+    await db.update(uploadTasks).set({ status: 'completed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
 
     return c.json({
       success: true,
@@ -404,13 +448,16 @@ app.post('/complete', async (c) => {
     });
   } catch (error: any) {
     console.error('Complete upload task error:', error);
-    return c.json({ 
-      success: false, 
-      error: { 
-        code: ERROR_CODES.INTERNAL_ERROR, 
-        message: error.message || '上传完成失败' 
-      } 
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: error.message || '上传完成失败',
+        },
+      },
+      500
+    );
   }
 });
 
@@ -424,9 +471,11 @@ app.post('/abort', async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -435,7 +484,10 @@ app.post('/abort', async (c) => {
   }
 
   if (task.status === 'completed') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务已完成，无法中止' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务已完成，无法中止' } },
+      400
+    );
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
@@ -447,7 +499,8 @@ app.post('/abort', async (c) => {
     }
   }
 
-  await db.update(uploadTasks)
+  await db
+    .update(uploadTasks)
     .set({ status: 'failed', updatedAt: new Date().toISOString() })
     .where(eq(uploadTasks.id, taskId));
 
@@ -458,9 +511,11 @@ app.get('/:taskId', async (c) => {
   const userId = c.get('userId')!;
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -473,7 +528,10 @@ app.get('/:taskId', async (c) => {
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    await db.update(uploadTasks).set({ status: 'expired', updatedAt: new Date().toISOString() }).where(eq(uploadTasks.id, taskId));
+    await db
+      .update(uploadTasks)
+      .set({ status: 'expired', updatedAt: new Date().toISOString() })
+      .where(eq(uploadTasks.id, taskId));
     return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
   }
 
@@ -486,7 +544,8 @@ app.get('/:taskId', async (c) => {
   try {
     const parts = await s3ListParts(bucketConfig, task.r2Key, task.uploadId);
     uploadedParts = parts.map((p) => p.partNumber);
-    await db.update(uploadTasks)
+    await db
+      .update(uploadTasks)
       .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
       .where(eq(uploadTasks.id, taskId));
   } catch (e) {
@@ -507,7 +566,9 @@ app.delete('/:taskId', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -525,7 +586,9 @@ app.post('/:taskId/pause', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -534,10 +597,14 @@ app.post('/:taskId/pause', async (c) => {
   }
 
   if (task.status !== 'uploading' && task.status !== 'pending') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停上传中或等待中的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停上传中或等待中的任务' } },
+      400
+    );
   }
 
-  await db.update(uploadTasks)
+  await db
+    .update(uploadTasks)
     .set({ status: 'paused', updatedAt: new Date().toISOString() })
     .where(eq(uploadTasks.id, taskId));
 
@@ -549,7 +616,9 @@ app.post('/:taskId/resume', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
@@ -558,15 +627,22 @@ app.post('/:taskId/resume', async (c) => {
   }
 
   if (task.status !== 'paused') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } },
+      400
+    );
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    await db.update(uploadTasks).set({ status: 'expired', updatedAt: new Date().toISOString() }).where(eq(uploadTasks.id, taskId));
+    await db
+      .update(uploadTasks)
+      .set({ status: 'expired', updatedAt: new Date().toISOString() })
+      .where(eq(uploadTasks.id, taskId));
     return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
   }
 
-  await db.update(uploadTasks)
+  await db
+    .update(uploadTasks)
     .set({ status: 'pending', updatedAt: new Date().toISOString() })
     .where(eq(uploadTasks.id, taskId));
 
@@ -578,7 +654,9 @@ app.delete('/:taskId', async (c) => {
   const taskId = c.req.param('taskId');
   const db = getDb(c.env.DB);
 
-  const task = await db.select().from(uploadTasks)
+  const task = await db
+    .select()
+    .from(uploadTasks)
     .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
     .get();
 
