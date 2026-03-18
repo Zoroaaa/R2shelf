@@ -11,7 +11,7 @@
 
 import { eq, and } from 'drizzle-orm';
 import { getDb, users, webdavSessions, loginAttempts, auditLogs } from '../db';
-import { hashPassword, verifyPassword, signJWT, verifyJWT } from '../lib/crypto';
+import { hashPassword, verifyPassword, createJWT, verifyJWT } from '../lib/crypto';
 import type { Env } from '../types/env';
 
 type DbType = ReturnType<typeof getDb>;
@@ -123,7 +123,7 @@ export class UserService {
 
     await this.recordLoginAttempt(email, clientIp, true, userAgent);
 
-    const token = await signJWT(
+    const token = await createJWT(
       {
         userId: user.id,
         email: user.email,
@@ -191,7 +191,7 @@ export class UserService {
     return recentFailures.length >= 5;
   }
 
-  private async recordLoginAttempt(email: string, clientIp: string | undefined, success: boolean, userAgent: string | undefined) {
+  private async recordLoginAttempt(email: string, clientIp?: string, success: boolean, userAgent?: string) {
     const now = new Date().toISOString();
 
     await this.db.insert(loginAttempts).values({
