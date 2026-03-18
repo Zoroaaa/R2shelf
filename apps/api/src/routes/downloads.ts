@@ -160,20 +160,9 @@ app.post('/create', async (c) => {
           throw new Error('无法读取响应内容');
         }
 
-        const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-        const writer = writable.getWriter();
-
-        const uploadPromise = (async () => {
-          const fileId = crypto.randomUUID();
-          const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
-          const path = parentId ? `${parentId}/${resolvedFileName}` : `/${resolvedFileName}`;
-
-          // 传递文件大小给 s3Put，某些 S3 存储要求 Content-Length 头
-          await s3Put(bucketConfig, r2Key, readable, contentType, undefined, fileSize > 0 ? fileSize : undefined);
-
-          return { fileId, r2Key, path };
-        })();
-
+        // 先将所有数据收集到内存，再一次性上传
+        // 这样可以使用 Uint8Array 而非 ReadableStream，确保 Content-Length 头正确设置
+        const chunks: Uint8Array[] = [];
         let lastProgressUpdate = Date.now();
         const PROGRESS_UPDATE_INTERVAL = 1000;
 
@@ -181,7 +170,7 @@ app.post('/create', async (c) => {
           const { done, value } = await reader.read();
           if (done) break;
 
-          await writer.write(value);
+          chunks.push(value);
           downloadedBytes += value.length;
 
           const now = Date.now();
@@ -195,10 +184,22 @@ app.post('/create', async (c) => {
           }
         }
 
-        await writer.close();
         totalSize = downloadedBytes;
 
-        const { fileId, r2Key, path } = await uploadPromise;
+        // 合并所有 chunks 为单个 Uint8Array
+        const fileData = new Uint8Array(totalSize);
+        let offset = 0;
+        for (const chunk of chunks) {
+          fileData.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        // 使用 Uint8Array 上传，可以正确设置 Content-Length
+        const fileId = crypto.randomUUID();
+        const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
+        const path = parentId ? `${parentId}/${resolvedFileName}` : `/${resolvedFileName}`;
+
+        await s3Put(bucketConfig, r2Key, fileData, contentType, undefined, totalSize);
 
         await db.insert(files).values({
           id: fileId,
