@@ -127,7 +127,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   const loadDocxPreview = useCallback(async () => {
     if (!isWord || !resolvedUrl || !docxContainerRef.current) {
-      console.log('DOCX preview skipped:', { isWord, resolvedUrl: !!resolvedUrl, container: !!docxContainerRef.current });
+      console.log('DOCX preview skipped:', {
+        isWord,
+        resolvedUrl: !!resolvedUrl,
+        container: !!docxContainerRef.current,
+      });
       return;
     }
 

@@ -265,6 +265,8 @@ export default function Files() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
   const { openContextMenu, closeContextMenu, ContextMenuComponent } = useContextMenuState();
 
   const { uploadFolderEntries } = useFolderUpload({
@@ -1118,27 +1120,136 @@ export default function Files() {
             新建
           </Button>
 
-          <label>
-            <Button asChild size="sm">
-              <span>
-                <Upload className="h-4 w-4 mr-1.5" />
-                上传
-              </span>
+          <div className="relative">
+            <Button
+              size="sm"
+              onClick={() => setShowUploadMenu(!showUploadMenu)}
+              onBlur={() => setTimeout(() => setShowUploadMenu(false), 150)}
+            >
+              <Upload className="h-4 w-4 mr-1.5" />
+              上传
             </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={(e) => {
-                Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}`;
-                  uploadMutation.mutate({ file, parentId: folderId || null, key });
-                });
-                e.target.value = '';
-              }}
-            />
-          </label>
+            {showUploadMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-card border rounded-lg shadow-lg z-50 min-w-[140px] py-1">
+                <label className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 cursor-pointer">
+                  <Upload className="h-4 w-4" />
+                  <span>上传文件</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={(e) => {
+                      Array.from(e.target.files || []).forEach((file) => {
+                        const key = `${file.name}-${Date.now()}`;
+                        uploadMutation.mutate({ file, parentId: folderId || null, key });
+                      });
+                      e.target.value = '';
+                      setShowUploadMenu(false);
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50 cursor-pointer">
+                  <FolderInput className="h-4 w-4" />
+                  <span>上传文件夹</span>
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    className="hidden"
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length === 0) return;
+
+                      const folderPaths = new Set<string>();
+                      for (const file of files) {
+                        const relativePath = (file as any).webkitRelativePath as string;
+                        if (relativePath) {
+                          const parts = relativePath.split('/');
+                          for (let i = 1; i < parts.length; i++) {
+                            folderPaths.add(parts.slice(0, i).join('/'));
+                          }
+                        }
+                      }
+
+                      const sortedFolderPaths = [...folderPaths].sort((a, b) => {
+                        const da = a.split('/').length;
+                        const db = b.split('/').length;
+                        return da - db;
+                      });
+
+                      const folderIdMap = new Map<string, string>();
+                      const createFoldersAndUpload = async () => {
+                        for (const folderPath of sortedFolderPaths) {
+                          const parts = folderPath.split('/');
+                          const name = parts[parts.length - 1];
+                          if (!name) continue;
+                          const parentPath = parts.slice(0, -1).join('/');
+                          const parentId = parentPath
+                            ? (folderIdMap.get(parentPath) ?? folderId ?? null)
+                            : (folderId ?? null);
+
+                          try {
+                            const res = await filesApi.createFolder(name, parentId);
+                            const createdFolderId = res.data.data?.id;
+                            if (createdFolderId) folderIdMap.set(folderPath, createdFolderId);
+                          } catch (err: any) {
+                            console.warn(`创建文件夹 ${folderPath} 失败:`, err?.response?.data?.error?.message);
+                          }
+                        }
+
+                        for (const file of files) {
+                          const relativePath = (file as any).webkitRelativePath as string;
+                          const parts = relativePath.split('/');
+                          const parentPath = parts.slice(0, -1).join('/');
+                          const parentId = parentPath
+                            ? (folderIdMap.get(parentPath) ?? folderId ?? null)
+                            : (folderId ?? null);
+
+                          const key = `${file.name}-${Date.now()}-${Math.random()}`;
+                          setUploadProgresses((p) => ({ ...p, [key]: 0 }));
+
+                          try {
+                            await presignUpload({
+                              file,
+                              parentId,
+                              onProgress: (progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
+                            });
+                            setUploadProgresses((p) => {
+                              const n = { ...p };
+                              delete n[key];
+                              return n;
+                            });
+                            toast({ title: '上传成功' });
+                          } catch (err: any) {
+                            setUploadProgresses((p) => {
+                              const n = { ...p };
+                              delete n[key];
+                              return n;
+                            });
+                            toast({
+                              title: '上传失败',
+                              description: err?.response?.data?.error?.message,
+                              variant: 'destructive',
+                            });
+                          }
+                        }
+
+                        queryClient.invalidateQueries({ queryKey: ['files'] });
+                        queryClient.invalidateQueries({ queryKey: ['stats'] });
+                      };
+
+                      createFoldersAndUpload();
+                      e.target.value = '';
+                      setShowUploadMenu(false);
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

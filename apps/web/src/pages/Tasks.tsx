@@ -123,12 +123,8 @@ export default function Tasks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeTasks = tasks.filter((t) => 
-    ['uploading', 'pending', 'paused'].includes(t.status)
-  );
-  const historyTasks = tasks.filter((t) => 
-    ['completed', 'failed', 'expired', 'aborted'].includes(t.status)
-  );
+  const activeTasks = tasks.filter((t) => ['uploading', 'pending', 'paused'].includes(t.status));
+  const historyTasks = tasks.filter((t) => ['completed', 'failed', 'expired', 'aborted'].includes(t.status));
   const completedTasks = tasks.filter((t) => t.status === 'completed');
   const failedTasks = tasks.filter((t) => ['failed', 'expired', 'aborted'].includes(t.status));
 

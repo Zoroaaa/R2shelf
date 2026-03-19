@@ -125,12 +125,7 @@ class UploadManager {
     this.pendingTasks.clear();
   }
 
-  private async startUploadInWorker(
-    taskId: string,
-    file: File,
-    parentId: string | null,
-    bucketId: string | null
-  ) {
+  private async startUploadInWorker(taskId: string, file: File, parentId: string | null, bucketId: string | null) {
     if (!this.worker) {
       // 降级到主线程
       const { presignUpload } = await import('./presignUpload');
@@ -194,9 +189,7 @@ class UploadManager {
   }
 
   getActiveUploadsInfo(): { count: number; hasLargeFiles: boolean; largeFileNames: string[]; smallFileCount: number } {
-    const activeJobs = Array.from(this.jobs.values()).filter(
-      (j) => j.status === 'uploading' || j.status === 'pending'
-    );
+    const activeJobs = Array.from(this.jobs.values()).filter((j) => j.status === 'uploading' || j.status === 'pending');
     const largeFileJobs = activeJobs.filter((j) => j.isLargeFile);
     const smallFileJobs = activeJobs.filter((j) => !j.isLargeFile);
     return {

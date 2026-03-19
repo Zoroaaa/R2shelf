@@ -65,11 +65,7 @@ async function apiGet<T>(path: string): Promise<T> {
   return json.data;
 }
 
-async function uploadPart(
-  partUrl: string,
-  chunk: ArrayBuffer,
-  contentType: string
-): Promise<string> {
+async function uploadPart(partUrl: string, chunk: ArrayBuffer, contentType: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', partUrl);
@@ -91,11 +87,7 @@ async function uploadPart(
   });
 }
 
-async function proxyUploadPart(
-  taskId: string,
-  partNumber: number,
-  chunk: ArrayBuffer
-): Promise<string> {
+async function proxyUploadPart(taskId: string, partNumber: number, chunk: ArrayBuffer): Promise<string> {
   const formData = new FormData();
   formData.append('taskId', taskId);
   formData.append('partNumber', String(partNumber));
