@@ -294,3 +294,5 @@ export const downloadTasks = sqliteTable(
 );
 
 export type DbType = typeof import('./index').getDb;
+
+export type File = typeof files.$inferSelect;

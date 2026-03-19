@@ -192,11 +192,19 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
   // 使用 crypto.subtle 的 HMAC verify 实现常量时间比较
   // （Workers 环境不提供 timingSafeEqual，此为等效替代）
-  const hmacKey = await crypto.subtle.importKey('raw', actualHashBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+  const hmacKey = await crypto.subtle.importKey('raw', actualHashBytes, { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+    'verify',
+  ]);
   const sentinel = new Uint8Array(1);
   const sig1 = await crypto.subtle.sign('HMAC', hmacKey, sentinel);
-  const hmacKey2 = await crypto.subtle.importKey('raw', expectedHashBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+  const hmacKey2 = await crypto.subtle.importKey('raw', expectedHashBytes, { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+    'verify',
+  ]);
   const sig2 = await crypto.subtle.sign('HMAC', hmacKey2, sentinel);
-  return await crypto.subtle.verify('HMAC', hmacKey, sig2, sentinel) &&
-         await crypto.subtle.verify('HMAC', hmacKey2, sig1, sentinel);
+  return (
+    (await crypto.subtle.verify('HMAC', hmacKey, sig2, sentinel)) &&
+    (await crypto.subtle.verify('HMAC', hmacKey2, sig1, sentinel))
+  );
 }

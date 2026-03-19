@@ -355,9 +355,7 @@ app.post('/copy', async (c) => {
   if (batchResult.success > 0) {
     // 仅统计实际成功复制的文件大小（而非按顺序截取），避免中间失败时统计偏差
     const successIds = new Set(
-      filesToCopy
-        .filter((_, i) => !batchResult.errors.some((e) => e.id === filesToCopy[i].id))
-        .map((f) => f.id)
+      filesToCopy.filter((_, i) => !batchResult.errors.some((e) => e.id === filesToCopy[i].id)).map((f) => f.id)
     );
     const copiedSize = filesToCopy
       .filter((f) => !batchResult.errors.some((e) => e.id === f.id))

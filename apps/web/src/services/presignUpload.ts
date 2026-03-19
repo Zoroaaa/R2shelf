@@ -208,7 +208,16 @@ function isCorsError(error: unknown): boolean {
 }
 
 async function multipartUpload(
-  { file, parentId, bucketId, onProgress, onFallback, signal, taskId: existingTaskId, skipParts = [] }: PresignUploadOptions,
+  {
+    file,
+    parentId,
+    bucketId,
+    onProgress,
+    onFallback,
+    signal,
+    taskId: existingTaskId,
+    skipParts = [],
+  }: PresignUploadOptions,
   uploadCtx: { corsErrorDetected: boolean }
 ): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
@@ -368,7 +377,9 @@ async function multipartUpload(
     // 合并断点续传中已记录的分片（服务端 DB 缓存，含 etag）与本次新上传的分片
     // taskInfo.parts 在断点续传模式下由服务端返回，已包含完整的 etag
     const existingParts: Array<{ partNumber: number; etag: string }> = existingTaskId
-      ? (await apiGet<{ parts?: Array<{ partNumber: number; etag: string }> }>(`/api/tasks/${taskId}`).then(d => d.parts ?? []).catch(() => []))
+      ? await apiGet<{ parts?: Array<{ partNumber: number; etag: string }> }>(`/api/tasks/${taskId}`)
+          .then((d) => d.parts ?? [])
+          .catch(() => [])
       : [];
     const allParts = [...existingParts, ...parts]
       .filter((p) => p.etag) // 过滤掉无 etag 的条目

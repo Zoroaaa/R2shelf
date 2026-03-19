@@ -115,8 +115,6 @@ async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
   return user;
 }
 
-
-
 // ── POST /api/presign/upload ───────────────────────────────────────────────
 // Phase 1: Return a presigned PUT URL. The browser uploads directly.
 // Phase 2: Browser calls /confirm after a successful upload.

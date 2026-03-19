@@ -330,10 +330,7 @@ app.delete('/:id', async (c) => {
     const next = remaining.filter((b) => b.id !== id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
     if (next) {
       const now = new Date().toISOString();
-      await db
-        .update(storageBuckets)
-        .set({ isDefault: true, updatedAt: now })
-        .where(eq(storageBuckets.id, next.id));
+      await db.update(storageBuckets).set({ isDefault: true, updatedAt: now }).where(eq(storageBuckets.id, next.id));
     }
   }
 

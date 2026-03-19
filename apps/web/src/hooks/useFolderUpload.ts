@@ -77,24 +77,18 @@ export function useFolderUpload({
           // readEntries 每次最多返回 100 条，需循环直到返回空数组
           const readBatch = (): Promise<void> =>
             new Promise<void>((resolve, reject) => {
-              dirReader.readEntries(
-                (entries) => {
-                  if (entries.length === 0) {
-                    resolve();
-                    return;
-                  }
-                  // 串行处理本批次，再读下一批
-                  entries
-                    .reduce(
-                      (chain, e) => chain.then(() => traverseEntry(e, fullPath)),
-                      Promise.resolve()
-                    )
-                    .then(() => readBatch())
-                    .then(resolve)
-                    .catch(reject);
-                },
-                reject
-              );
+              dirReader.readEntries((entries) => {
+                if (entries.length === 0) {
+                  resolve();
+                  return;
+                }
+                // 串行处理本批次，再读下一批
+                entries
+                  .reduce((chain, e) => chain.then(() => traverseEntry(e, fullPath)), Promise.resolve())
+                  .then(() => readBatch())
+                  .then(resolve)
+                  .catch(reject);
+              }, reject);
             });
 
           return readBatch();

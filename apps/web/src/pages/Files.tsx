@@ -895,12 +895,7 @@ export default function Files() {
   ];
 
   return (
-    <div
-      className="space-y-5"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
+    <div className="space-y-5" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       <ContextMenuComponent />
 
       {isDragActive && (
@@ -1237,7 +1232,10 @@ export default function Files() {
                             }
                           } catch (err: any) {
                             // 记录警告但不中止——继续处理后续文件夹和文件
-                            console.warn(`创建文件夹 "${folderPath}" 失败:`, err?.response?.data?.error?.message || err?.message);
+                            console.warn(
+                              `创建文件夹 "${folderPath}" 失败:`,
+                              err?.response?.data?.error?.message || err?.message
+                            );
                           }
                         }
 

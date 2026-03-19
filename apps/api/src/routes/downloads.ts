@@ -65,13 +65,15 @@ interface RunDownloadParams {
   db: ReturnType<typeof getDb>;
   userId: string;
   taskId: string;
-  task: { url: string; fileName: string; parentId: string | null; bucketId: string | null };
-  bucketConfig: import('../lib/s3client').S3BucketConfig;
+  task: { url: string; fileName: string | null; parentId: string | null; bucketId: string | null };
+  bucketConfig: import('../lib/s3client').S3BucketConfig | null;
   env: Env;
 }
 
 async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunDownloadParams): Promise<void> {
-  const { url, fileName: resolvedFileName, parentId } = task;
+  if (!bucketConfig) return;
+  const { url, fileName, parentId } = task;
+  const resolvedFileName = fileName || 'downloaded_file';
   let downloadedBytes = 0;
   let totalSize = 0;
   const now = new Date().toISOString();
@@ -128,7 +130,10 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
     totalSize = downloadedBytes;
     const fileData = new Uint8Array(totalSize);
     let offset = 0;
-    for (const chunk of chunks) { fileData.set(chunk, offset); offset += chunk.length; }
+    for (const chunk of chunks) {
+      fileData.set(chunk, offset);
+      offset += chunk.length;
+    }
 
     const fileId = crypto.randomUUID();
     const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
@@ -173,7 +178,6 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
       .where(eq(downloadTasks.id, taskId));
   }
 }
-
 
 app.post('/create', async (c) => {
   const userId = c.get('userId')!;
@@ -233,8 +237,15 @@ app.post('/create', async (c) => {
 
   // 在后台执行下载，复用 runDownload 函数（与 retry 共享逻辑）
   c.executionCtx.waitUntil(
-    runDownload({ db, userId, taskId, task: { url, fileName: resolvedFileName, parentId: parentId || null, bucketId: bucketConfig.id }, bucketConfig, env: c.env })
-  );;
+    runDownload({
+      db,
+      userId,
+      taskId,
+      task: { url, fileName: resolvedFileName, parentId: parentId || null, bucketId: bucketConfig.id },
+      bucketConfig,
+      env: c.env,
+    })
+  );
 
   return c.json({
     success: true,
@@ -459,7 +470,14 @@ app.post('/:taskId/retry', async (c) => {
 
   if (bucketConfig) {
     c.executionCtx.waitUntil(
-      runDownload({ db, userId, taskId, task: { url: task.url, fileName: task.fileName, parentId: task.parentId, bucketId: task.bucketId }, bucketConfig, env: c.env })
+      runDownload({
+        db,
+        userId,
+        taskId,
+        task: { url: task.url, fileName: task.fileName, parentId: task.parentId, bucketId: task.bucketId },
+        bucketConfig,
+        env: c.env,
+      })
     );
   }
 

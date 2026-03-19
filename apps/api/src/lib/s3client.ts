@@ -702,7 +702,7 @@ export async function s3Head(config: S3BucketConfig, key: string): Promise<Respo
 export async function makeBucketConfigAsync(
   row: typeof import('../db/schema').storageBuckets.$inferSelect,
   encKey: string,
-  db?: ReturnType<typeof import('../db').getDb>,
+  db?: ReturnType<typeof import('../db').getDb>
 ): Promise<S3BucketConfig> {
   const isAesGcm = isAesGcmFormat(row.accessKeyId) && isAesGcmFormat(row.secretAccessKey);
 

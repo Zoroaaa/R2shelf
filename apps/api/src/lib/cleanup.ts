@@ -173,7 +173,10 @@ async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCl
   const now = new Date().toISOString();
 
   // 只删除有明确过期时间且已过期的分享（NULL 表示永不过期）
-  const expiredShares = await db.delete(shares).where(and(isNotNull(shares.expiresAt), lt(shares.expiresAt, now))).returning({ id: shares.id });
+  const expiredShares = await db
+    .delete(shares)
+    .where(and(isNotNull(shares.expiresAt), lt(shares.expiresAt, now)))
+    .returning({ id: shares.id });
 
   console.log(`Share cleanup: ${expiredShares.length} expired shares removed`);
 

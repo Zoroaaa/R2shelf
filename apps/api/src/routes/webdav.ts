@@ -12,6 +12,7 @@
 import { Hono, Context } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
+import type { File } from '../db/schema';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
@@ -206,7 +207,7 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
   });
 }
 
-async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string) {
+async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
   let file = await db
     .select()
     .from(files)
@@ -275,7 +276,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    let parentFolder = await findFileByPath(db, userId, parentPath);
+    const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
@@ -283,7 +284,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
       for (const part of pathParts) {
         currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
-        let folder = await findFileByPath(db, userId, currentPath);
+        const folder = await findFileByPath(db, userId, currentPath);
 
         if (!folder) {
           const folderId = crypto.randomUUID();
@@ -349,6 +350,16 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
   if (existingFile) {
     await db.update(files).set({ size: body.byteLength, mimeType, updatedAt: now }).where(eq(files.id, fileId));
+
+    // 更新用户存储用量（覆盖写时计算大小差额）
+    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (userRow) {
+      const sizeDelta = body.byteLength - existingFile.size;
+      await db
+        .update(users)
+        .set({ storageUsed: Math.max(0, userRow.storageUsed + sizeDelta), updatedAt: now })
+        .where(eq(users.id, userId));
+    }
   } else {
     await db.insert(files).values({
       id: fileId,
@@ -369,13 +380,12 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     });
     if (bucketCfgP) await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
 
-    // 更新用户存储用量（仅新文件；覆盖写时大小差额由以下逻辑处理）
+    // 更新用户存储用量（新文件）
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow) {
-      const sizeDelta = existingFile ? body.byteLength - existingFile.size : body.byteLength;
       await db
         .update(users)
-        .set({ storageUsed: Math.max(0, userRow.storageUsed + sizeDelta), updatedAt: now })
+        .set({ storageUsed: userRow.storageUsed + body.byteLength, updatedAt: now })
         .where(eq(users.id, userId));
     }
   }

@@ -440,13 +440,12 @@ app.get('/me', authMiddleware, async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
   }
 
-  const bucketRows = await db
-    .select()
-    .from(storageBuckets)
-    .where(and(eq(storageBuckets.userId, userId!), eq(storageBuckets.isActive, true)))
+  const activeFiles = await db
+    .select({ size: files.size, isFolder: files.isFolder })
+    .from(files)
+    .where(and(eq(files.userId, userId!), isNull(files.deletedAt), eq(files.isFolder, false)))
     .all();
-  const bucketStorageUsed = bucketRows.reduce((sum, b) => sum + (b.storageUsed ?? 0), 0);
-  const actualStorageUsed = Math.max(user.storageUsed ?? 0, bucketStorageUsed);
+  const actualStorageUsed = activeFiles.reduce((sum, f) => sum + f.size, 0);
 
   return c.json({
     success: true,
@@ -733,18 +732,30 @@ app.get('/stats', authMiddleware, async (c) => {
     .from(storageBuckets)
     .where(and(eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true)))
     .all();
-  const bucketStorageUsed = bucketRows.reduce((sum, b) => sum + (b.storageUsed ?? 0), 0);
-  const totalStorageUsed = Math.max(userRow?.storageUsed ?? 0, bucketStorageUsed);
 
-  const bucketBreakdown = bucketRows.map((b) => ({
-    id: b.id,
-    name: b.name,
-    provider: b.provider,
-    storageUsed: b.storageUsed ?? 0,
-    storageQuota: b.storageQuota ?? null,
-    fileCount: b.fileCount ?? 0,
-    isDefault: b.isDefault,
-  }));
+  const actualBucketStats = new Map<string, { storageUsed: number; fileCount: number }>();
+  for (const f of activeFiles.filter((f) => !f.isFolder)) {
+    const bucketId = f.bucketId || '__no_bucket__';
+    const stats = actualBucketStats.get(bucketId) || { storageUsed: 0, fileCount: 0 };
+    stats.storageUsed += f.size;
+    stats.fileCount += 1;
+    actualBucketStats.set(bucketId, stats);
+  }
+
+  const bucketBreakdown = bucketRows.map((b) => {
+    const actualStats = actualBucketStats.get(b.id) || { storageUsed: 0, fileCount: 0 };
+    return {
+      id: b.id,
+      name: b.name,
+      provider: b.provider,
+      storageUsed: actualStats.storageUsed,
+      storageQuota: b.storageQuota ?? null,
+      fileCount: actualStats.fileCount,
+      isDefault: b.isDefault,
+    };
+  });
+
+  const totalStorageUsed = activeFiles.filter((f) => !f.isFolder).reduce((sum, f) => sum + f.size, 0);
 
   return c.json({
     success: true,

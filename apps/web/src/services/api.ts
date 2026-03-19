@@ -50,9 +50,7 @@ api.interceptors.response.use(
       //   - 分享链接（需要密码时返回 401）
       //   - 登录/注册接口（凭证错误时返回 401）
       const isPublicEndpoint =
-        url.includes('/api/share/') ||
-        url.includes('/api/auth/login') ||
-        url.includes('/api/auth/register');
+        url.includes('/api/share/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
 
       if (!isPublicEndpoint) {
         // 确认当前确实处于已认证状态才执行登出（避免未登录时循环跳转）

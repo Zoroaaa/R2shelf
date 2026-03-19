@@ -101,7 +101,7 @@ function isPreviewable(mimeType: string | null, fileName: string): { previewable
     return { previewable: true, type: 'code' };
   }
 
-  if (OFFICE_MIME_TYPES.includes(mimeType as typeof OFFICE_MIME_TYPES[number])) {
+  if (OFFICE_MIME_TYPES.includes(mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
     return { previewable: true, type: 'office' };
   }
 
@@ -314,7 +314,7 @@ app.get('/:id/office', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  if (!OFFICE_MIME_TYPES.includes(file.mimeType as typeof OFFICE_MIME_TYPES[number])) {
+  if (!OFFICE_MIME_TYPES.includes(file.mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不支持该文件类型' } }, 400);
   }
 

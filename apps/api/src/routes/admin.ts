@@ -86,19 +86,20 @@ app.get('/users', async (c) => {
 
   const enriched = await Promise.all(
     allUsers.map(async (u) => {
+      const userFiles = await db
+        .select({ size: files.size, isFolder: files.isFolder })
+        .from(files)
+        .where(and(eq(files.userId, u.id), isNull(files.deletedAt)))
+        .all();
+      const actualStorageUsed = userFiles.filter((f) => !f.isFolder).reduce((sum, f) => sum + f.size, 0);
+      const fileCount = userFiles.filter((f) => !f.isFolder).length;
+
       const buckets = await db
         .select()
         .from(storageBuckets)
         .where(and(eq(storageBuckets.userId, u.id), eq(storageBuckets.isActive, true)))
         .all();
-      const bucketStorageUsed = buckets.reduce((sum, b) => sum + (b.storageUsed ?? 0), 0);
-      const actualStorageUsed = Math.max(u.storageUsed ?? 0, bucketStorageUsed);
 
-      const fileCount = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(and(eq(files.userId, u.id), isNull(files.deletedAt)))
-        .all();
       return {
         id: u.id,
         email: u.email,
@@ -106,7 +107,7 @@ app.get('/users', async (c) => {
         role: u.role,
         storageQuota: u.storageQuota,
         storageUsed: actualStorageUsed,
-        fileCount: fileCount.length,
+        fileCount,
         bucketCount: buckets.length,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,

@@ -51,7 +51,16 @@ app.use(
       return allowedOrigins[0];
     },
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
-    allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control'],
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Depth',
+      'Destination',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'Cache-Control',
+    ],
     exposeHeaders: ['Content-Length', 'Content-Range', 'ETag'],
     maxAge: 86400,
     credentials: true,
