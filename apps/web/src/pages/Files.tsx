@@ -11,195 +11,52 @@
  * - 移动端触摸手势
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import {
-  filesApi,
-  shareApi,
-  bucketsApi,
-  PROVIDER_META,
-  type StorageBucket,
-  permissionsApi,
-  searchApi,
-  batchApi,
-} from '@/services/api';
-import { presignUpload, getPresignedDownloadUrl } from '@/services/presignUpload';
-import { useFolderUpload } from '@/hooks/useFolderUpload';
+import { filesApi, bucketsApi, permissionsApi, type StorageBucket } from '@/services/api';
+import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
+import { uploadManager } from '@/services/uploadManager';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { useResponsive } from '@/hooks/useResponsive';
-import { useContextMenuState, ContextMenuItem } from '@/components/ui/ContextMenu';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { FileIcon } from '@/components/ui/FileIcon';
 import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNav';
 import { FilePreview } from '@/components/ui/FilePreview';
 import { RenameDialog } from '@/components/ui/RenameDialog';
 import { MoveFolderPicker } from '@/components/ui/MoveFolderPicker';
 import { FileTagsManager } from '@/components/ui/FileTagsManager';
-import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
 import { FilePermissionManager } from '@/components/ui/FilePermissionManager';
 import { FolderSettings } from '@/components/ui/FolderSettings';
 import { useToast } from '@/components/ui/use-toast';
-import { formatBytes, formatDate } from '@/utils';
-import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
-import { uploadManager } from '@/services/uploadManager';
+import { Button } from '@/components/ui/button';
 import {
   Upload,
   FolderPlus,
   Grid,
   List,
-  Download,
   Trash2,
-  Share2,
-  Search,
-  X,
-  Pencil,
-  Eye,
   CheckSquare,
-  Square,
   SortAsc,
   SortDesc,
   Image as ImageIcon,
   FolderInput,
-  Database,
-  Copy,
-  Scissors,
-  Clipboard,
   RefreshCw,
   Columns,
   CheckCircle2,
   Tag,
-  Shield,
-  Settings,
+  X,
   SlidersHorizontal,
-  User,
+  Search,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
 
-function NewFolderDialog({
-  isRoot,
-  name,
-  bucketId,
-  onNameChange,
-  onBucketChange,
-  onConfirm,
-  onCancel,
-  loading,
-}: {
-  isRoot: boolean;
-  name: string;
-  bucketId: string | null;
-  onNameChange: (v: string) => void;
-  onBucketChange: (v: string | null) => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-  loading?: boolean;
-}) {
-  const { data: buckets = [] } = useQuery({
-    queryKey: ['buckets'],
-    queryFn: () => bucketsApi.list().then((r) => r.data.data ?? []),
-    staleTime: 30000,
-  });
-
-  const selected = (buckets as StorageBucket[]).find((b) => b.id === bucketId);
-  const defaultBucket = (buckets as StorageBucket[]).find((b) => b.isDefault);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
-        <h2 className="text-lg font-semibold">新建文件夹</h2>
-
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">文件夹名称</label>
-          <Input
-            placeholder="输入文件夹名称"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && name.trim() && onConfirm()}
-            autoFocus
-          />
-        </div>
-
-        {isRoot && (buckets as StorageBucket[]).length > 0 && (
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium flex items-center gap-1.5">
-              <Database className="h-3.5 w-3.5 text-muted-foreground" />
-              绑定存储桶
-            </label>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-lg border divide-y">
-              <button
-                type="button"
-                onClick={() => onBucketChange(null)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
-                  !bucketId ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50 text-muted-foreground'
-                )}
-              >
-                <div
-                  className={cn(
-                    'w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                    !bucketId ? 'border-primary' : 'border-muted-foreground/30'
-                  )}
-                >
-                  {!bucketId && <div className="w-2 h-2 rounded-full bg-primary" />}
-                </div>
-                <span className="flex-1">使用默认桶{defaultBucket ? `（${defaultBucket.name}）` : ''}</span>
-              </button>
-              {(buckets as StorageBucket[])
-                .filter((b) => b.isActive)
-                .map((b) => {
-                  const meta = PROVIDER_META[b.provider];
-                  const isSelected = bucketId === b.id;
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => onBucketChange(b.id)}
-                      className={cn(
-                        'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
-                        isSelected ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50'
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          'w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                          isSelected ? 'border-primary' : 'border-muted-foreground/30'
-                        )}
-                      >
-                        {isSelected && <div className="w-2 h-2 rounded-full bg-primary" />}
-                      </div>
-                      <span className="text-base">{meta.icon}</span>
-                      <span className="flex-1 truncate">{b.name}</span>
-                      {b.isDefault && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">默认</span>
-                      )}
-                    </button>
-                  );
-                })}
-            </div>
-            {selected && (
-              <p className="text-xs text-muted-foreground">此文件夹及其中的文件将存储到「{selected.name}」</p>
-            )}
-            {!bucketId && <p className="text-xs text-muted-foreground">未指定时使用默认存储桶</p>}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
-            取消
-          </Button>
-          <Button onClick={onConfirm} disabled={loading || !name.trim()}>
-            {loading ? '创建中…' : '创建'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { NewFolderDialog, ShareDialog, FileListContainer } from '@/components/files';
+import { useFileMutations } from '@/hooks/useFileMutations';
+import { useFileDragDrop } from '@/hooks/useFileDragDrop';
+import { useFileSearch } from '@/hooks/useFileSearch';
+import { useFileContextMenu } from '@/hooks/useFileContextMenu';
+import { useFilesPageState } from '@/hooks/useFilesPageState';
 
 export default function Files() {
   const { folderId } = useParams<{ folderId: string }>();
@@ -218,75 +75,71 @@ export default function Files() {
     sortBy,
     sortOrder,
     setSort,
-    searchQuery,
-    setSearchQuery,
     clipboard,
     setClipboard,
-    clearClipboard,
     setFocusedFile,
     getNextFileId,
   } = useFileStore();
 
-  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderBucketId, setNewFolderBucketId] = useState<string | null>(null);
-  const [uploadProgresses, setUploadProgresses] = useState<Record<string, number>>({});
-  const [shareFileId, setShareFileId] = useState<string | null>(null);
-  const [sharePassword, setSharePassword] = useState('');
-  const [shareExpiresDays, setShareExpiresDays] = useState<number | ''>('');
-  const [shareDownloadLimit, setShareDownloadLimit] = useState<number | ''>('');
-  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
-  const [renameFile, setRenameFile] = useState<FileItem | null>(null);
-  const [moveFile, setMoveFile] = useState<FileItem | null>(null);
-  const [searchInput, setSearchInput] = useState('');
-  const [galleryMode, setGalleryMode] = useState(false);
-  const [tagsFile, setTagsFile] = useState<FileItem | null>(null);
-  const [tagSearchQuery, setTagSearchQuery] = useState<string | null>(null);
-  const [permissionFile, setPermissionFile] = useState<FileItem | null>(null);
-  const [recursiveSearch, setRecursiveSearch] = useState(false);
-  const [folderSettingsFile, setFolderSettingsFile] = useState<FileItem | null>(null);
-  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
-  const [advancedConditions, setAdvancedConditions] = useState<
-    Array<{
-      field: 'name' | 'mimeType' | 'size' | 'createdAt' | 'updatedAt' | 'tags';
-      operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
-      value: string | number | string[];
-    }>
-  >([]);
-  const [advancedLogic, setAdvancedLogic] = useState<'and' | 'or'>('and');
-  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const pageState = useFilesPageState();
+  const {
+    showNewFolderDialog,
+    setShowNewFolderDialog,
+    newFolderName,
+    setNewFolderName,
+    newFolderBucketId,
+    setNewFolderBucketId,
+    uploadProgresses,
+    setUploadProgresses,
+    shareFileId,
+    setShareFileId,
+    previewFile,
+    setPreviewFile,
+    renameFile,
+    setRenameFile,
+    moveFile,
+    setMoveFile,
+    galleryMode,
+    setGalleryMode,
+    tagsFile,
+    setTagsFile,
+    permissionFile,
+    setPermissionFile,
+    folderSettingsFile,
+    setFolderSettingsFile,
+    fileInputRef,
+    folderInputRef,
+    searchInputRef,
+    resetNewFolderDialog,
+  } = pageState;
 
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const { openContextMenu, ContextMenuComponent } = useContextMenuState();
-
-  const { uploadFolderEntriesDirect } = useFolderUpload({
-    currentFolderId: folderId,
-    onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
-    onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
-    onFileDone: (key) => {
-      setUploadProgresses((p) => {
-        const n = { ...p };
-        delete n[key];
-        return n;
-      });
-      toast({ title: '上传成功' });
-    },
-    onFileError: (key, e: any) => {
-      setUploadProgresses((p) => {
-        const n = { ...p };
-        delete n[key];
-        return n;
-      });
-      toast({ title: '上传失败', description: e?.response?.data?.error?.message, variant: 'destructive' });
-    },
-    onAllDone: () => {
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
+  const fileSearch = useFileSearch({ folderId });
+  const {
+    searchInput,
+    setSearchInput,
+    searchQuery,
+    setSearchQuery,
+    tagSearchQuery,
+    setTagSearchQuery,
+    recursiveSearch,
+    setRecursiveSearch,
+    showAdvancedSearch,
+    setShowAdvancedSearch,
+    advancedConditions,
+    setAdvancedConditions,
+    advancedLogic,
+    setAdvancedLogic,
+    searchSuggestions,
+    showSuggestions,
+    setShowSuggestions,
+    tagSearchResults,
+    recursiveSearchResults,
+    advancedSearchResults,
+    handleSearchInput,
+    handleSuggestionClick,
+    handleTagClick,
+    clearTagSearch,
+  } = fileSearch;
 
   const { data: breadcrumbs = [] } = useQuery<BreadcrumbItem[]>({
     queryKey: ['breadcrumbs', folderId],
@@ -305,14 +158,12 @@ export default function Files() {
     },
   });
 
-  // 加载所有存储桶（用于上传前检查 provider）
   const { data: allBuckets = [] } = useQuery<StorageBucket[]>({
     queryKey: ['buckets'],
     queryFn: () => bucketsApi.list().then((r) => r.data.data ?? []),
     staleTime: 30000,
   });
 
-  // 加载当前文件夹信息（获取其关联的 bucketId）
   const { data: currentFolderInfo } = useQuery({
     queryKey: ['folder-info', folderId],
     enabled: !!folderId,
@@ -328,83 +179,6 @@ export default function Files() {
     queryKey: ['files', folderId],
     queryFn: () => filesApi.list({ parentId: folderId || null }).then((r) => r.data.data ?? []),
   });
-
-  const { data: tagSearchResults } = useQuery<FileItem[]>({
-    queryKey: ['tag-search', tagSearchQuery],
-    queryFn: async () => {
-      if (!tagSearchQuery) return [];
-      const res = await searchApi.query({ tags: [tagSearchQuery] });
-      return res.data.data?.items ?? [];
-    },
-    enabled: !!tagSearchQuery,
-  });
-
-  const { data: recursiveSearchResults } = useQuery<FileItem[]>({
-    queryKey: ['recursive-search', folderId, searchQuery],
-    queryFn: async () => {
-      if (!searchQuery || !recursiveSearch) return [];
-      const res = await searchApi.query({
-        query: searchQuery,
-        parentId: folderId || undefined,
-        recursive: true,
-      });
-      return res.data.data?.items ?? [];
-    },
-    enabled: !!searchQuery && recursiveSearch,
-  });
-
-  const { data: advancedSearchResults } = useQuery<FileItem[]>({
-    queryKey: ['advanced-search', advancedConditions, advancedLogic],
-    queryFn: async () => {
-      if (advancedConditions.length === 0) return [];
-      const res = await searchApi.advanced({
-        conditions: advancedConditions,
-        logic: advancedLogic,
-      });
-      return res.data.data?.items ?? [];
-    },
-    enabled: advancedConditions.length > 0 && showAdvancedSearch,
-  });
-
-  const handleSearchInput = useCallback(
-    async (value: string) => {
-      setSearchInput(value);
-      setSearchQuery(value);
-      if (tagSearchQuery) setTagSearchQuery(null);
-
-      if (value.length >= 2) {
-        try {
-          const res = await searchApi.suggestions({ q: value, type: 'name' });
-          setSearchSuggestions(res.data.data ?? []);
-          setShowSuggestions(true);
-        } catch {
-          setSearchSuggestions([]);
-        }
-      } else {
-        setSearchSuggestions([]);
-        setShowSuggestions(false);
-      }
-    },
-    [tagSearchQuery]
-  );
-
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    setSearchInput(suggestion);
-    setSearchQuery(suggestion);
-    setShowSuggestions(false);
-  }, []);
-
-  const handleTagClick = useCallback((tagName: string) => {
-    setTagSearchQuery(tagName);
-    setSearchQuery(tagName);
-    setSearchInput(tagName);
-  }, []);
-
-  const clearTagSearch = useCallback(() => {
-    setTagSearchQuery(null);
-    setSearchQuery('');
-    setSearchInput('');
-  }, []);
 
   const fileIds = files.map((f) => f.id);
   const { data: fileTagsMap = {} } = useQuery<Record<string, any[]>>({
@@ -436,24 +210,21 @@ export default function Files() {
   const imageFiles = displayFiles.filter((f) => f.mimeType?.startsWith('image/'));
   const hasImages = imageFiles.length > 0;
 
-  const createFolderMutation = useMutation({
-    mutationFn: (name: string) => filesApi.createFolder(name, folderId, !folderId ? newFolderBucketId : null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      setShowNewFolderDialog(false);
-      setNewFolderName('');
-      setNewFolderBucketId(null);
-      toast({ title: '创建成功' });
-    },
-    onError: (e: any) =>
-      toast({ title: '创建失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  // ── Telegram 上传前置校验 ────────────────────────────────────────────
-  const TG_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  const fileMutations = useFileMutations();
+  const {
+    createFolderMutation,
+    uploadMutation,
+    deleteMutation,
+    renameMutation,
+    moveMutation,
+    shareMutation,
+    batchDeleteMutation,
+    batchMoveMutation,
+    batchCopyMutation,
+    checkTelegramLimit,
+  } = fileMutations;
 
   function getEffectiveBucket(): StorageBucket | null {
-    // 优先用当前文件夹关联的桶，否则找默认桶
     const folderBucketId = (currentFolderInfo as any)?.bucketId ?? null;
     if (folderBucketId) {
       return allBuckets.find((b) => b.id === folderBucketId) ?? null;
@@ -461,241 +232,89 @@ export default function Files() {
     return allBuckets.find((b) => b.isDefault) ?? null;
   }
 
-  function checkTelegramLimit(file: File): string | null {
-    const bucket = getEffectiveBucket();
-    if (bucket?.provider === 'telegram' && file.size > TG_MAX_FILE_SIZE) {
-      return `「${file.name}」超出 Telegram 存储桶 50MB 单文件限制（当前 ${(file.size / 1024 / 1024).toFixed(1)} MB）`;
-    }
-    return null;
-  }
-
-  const uploadMutation = useMutation({
-    mutationFn: ({ file, parentId, key }: { file: File; parentId: string | null; key: string }) => {
-      // 前置校验：Telegram 桶 50MB 限制
-      const limitErr = checkTelegramLimit(file);
-      if (limitErr) return Promise.reject(new Error(limitErr));
-      return uploadManager.startUpload(file, parentId, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })));
-    },
-    onSuccess: (_, { key }) => {
-      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-      setUploadProgresses((p) => {
-        const n = { ...p };
-        delete n[key];
-        return n;
-      });
-      toast({ title: '上传成功' });
-    },
-    onError: (e: any, { key }) => {
-      setUploadProgresses((p) => {
-        const n = { ...p };
-        delete n[key];
-        return n;
-      });
-      toast({
-        title: '上传失败',
-        description: e?.message || e?.response?.data?.error?.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => filesApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      queryClient.invalidateQueries({ queryKey: ['trash'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-      clearSelection();
-      toast({ title: '已移入回收站' });
-    },
-    onError: (e: any) =>
-      toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  const renameMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => filesApi.update(id, { name }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      setRenameFile(null);
-      toast({ title: '重命名成功' });
-    },
-    onError: (e: any) =>
-      toast({ title: '重命名失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  const moveMutation = useMutation({
-    mutationFn: ({ id, targetParentId }: { id: string; targetParentId: string | null }) =>
-      filesApi.move(id, targetParentId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      setMoveFile(null);
-      toast({ title: '移动成功' });
-    },
-    onError: (e: any) =>
-      toast({ title: '移动失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  const shareMutation = useMutation({
-    mutationFn: ({
-      fileId,
-      password,
-      expiresAt,
-      downloadLimit,
-    }: {
-      fileId: string;
-      password?: string;
-      expiresAt?: string;
-      downloadLimit?: number;
-    }) => shareApi.create({ fileId, password, expiresAt, downloadLimit }),
-    onSuccess: (res) => {
-      const shareId = res.data.data?.id;
-      if (shareId) {
-        const url = `${window.location.origin}/share/${shareId}`;
-        navigator.clipboard.writeText(url).then(() => toast({ title: '分享链接已复制', description: url }));
+  const handleUpload = useCallback(
+    (file: File, key: string) => {
+      const bucket = getEffectiveBucket();
+      const limitErr = checkTelegramLimit(file, bucket);
+      if (limitErr) {
+        toast({ title: '上传失败', description: limitErr, variant: 'destructive' });
+        return;
       }
-      queryClient.invalidateQueries({ queryKey: ['shares'] });
-      setShareFileId(null);
-      setSharePassword('');
-      setShareExpiresDays('');
-      setShareDownloadLimit('');
-    },
-    onError: (e: any) =>
-      toast({ title: '创建分享失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  const [isDragActive, setIsDragActive] = useState(false);
-
-  // 原生拖拽处理：必须在 drop 事件的同步代码里调用 webkitGetAsEntry()
-  // react-dropzone 的 onDrop 是异步回调，此时 DataTransferItemList 已被清空
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // 只有离开最外层容器时才关闭遮罩
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsDragActive(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragActive(false);
-
-      const items = e.dataTransfer.items;
-      if (!items || items.length === 0) return;
-
-      // 同步检查是否含有文件夹，同步提取所有 entry（异步调用后 items 会被清空）
-      const entries: FileSystemEntry[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const entry = item?.webkitGetAsEntry?.();
-        if (entry) entries.push(entry);
-      }
-
-      const hasFolder = entries.some((e) => e.isDirectory);
-
-      if (hasFolder) {
-        // 把已提取的 entries 直接传给 uploadFolderEntries，不再依赖 items
-        uploadFolderEntriesDirect(entries);
-      } else {
-        // 纯文件拖拽，从 dataTransfer.files 读取（此时仍有效）
-        Array.from(e.dataTransfer.files).forEach((file) => {
-          const key = `${file.name}-${Date.now()}`;
-          uploadMutation.mutate({ file, parentId: folderId || null, key });
+      setUploadProgresses((p) => ({ ...p, [key]: 0 }));
+      uploadManager
+        .startUpload(file, folderId || null, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })))
+        .then(() => {
+          setUploadProgresses((p) => {
+            const n = { ...p };
+            delete n[key];
+            return n;
+          });
+          queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+          queryClient.invalidateQueries({ queryKey: ['stats'] });
+          toast({ title: '上传成功' });
+        })
+        .catch((e: any) => {
+          setUploadProgresses((p) => {
+            const n = { ...p };
+            delete n[key];
+            return n;
+          });
+          toast({
+            title: '上传失败',
+            description: e?.message || e?.response?.data?.error?.message,
+            variant: 'destructive',
+          });
         });
-      }
     },
-    [folderId, uploadMutation, uploadFolderEntriesDirect]
+    [folderId, queryClient, toast, setUploadProgresses, checkTelegramLimit]
   );
 
-  const handleDownload = async (file: FileItem) => {
-    try {
-      const { url, fileName } = await getPresignedDownloadUrl(file.id);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName || file.name;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch {
+  const { isDragActive, handleDragOver, handleDragLeave, handleDrop } = useFileDragDrop({
+    folderId: folderId ?? null,
+    uploadMutation,
+    setUploadProgresses,
+  });
+
+  const handleDownload = useCallback(
+    async (file: FileItem) => {
       try {
-        const res = await filesApi.download(file.id);
-        const url = window.URL.createObjectURL(res.data as Blob);
+        const { url, fileName } = await getPresignedDownloadUrl(file.id);
         const a = document.createElement('a');
         a.href = url;
-        a.download = file.name;
+        a.download = fileName || file.name;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
         document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
         a.remove();
       } catch {
-        toast({ title: '下载失败', variant: 'destructive' });
+        try {
+          const res = await filesApi.download(file.id);
+          const url = window.URL.createObjectURL(res.data as Blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+        } catch {
+          toast({ title: '下载失败', variant: 'destructive' });
+        }
       }
-    }
-  };
-
-  const handleFileClick = (file: FileItem) => {
-    if (file.isFolder) {
-      clearSelection();
-      navigate(`/files/${file.id}`);
-    } else setPreviewFile(file);
-  };
-
-  const batchDeleteMutation = useMutation({
-    mutationFn: (fileIds: string[]) => batchApi.delete(fileIds),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      queryClient.invalidateQueries({ queryKey: ['trash'] });
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-      clearSelection();
-      const data = res.data.data;
-      toast({
-        title: '批量删除完成',
-        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
-      });
     },
-    onError: (e: any) =>
-      toast({ title: '批量删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
+    [toast]
+  );
 
-  const batchMoveMutation = useMutation({
-    mutationFn: ({ fileIds, targetParentId }: { fileIds: string[]; targetParentId: string | null }) =>
-      batchApi.move(fileIds, targetParentId),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      clearClipboard();
-      const data = res.data.data;
-      toast({
-        title: '批量移动完成',
-        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
-      });
+  const handleFileClick = useCallback(
+    (file: FileItem) => {
+      if (file.isFolder) {
+        clearSelection();
+        navigate(`/files/${file.id}`);
+      } else setPreviewFile(file);
     },
-    onError: (e: any) =>
-      toast({ title: '批量移动失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
-
-  const batchCopyMutation = useMutation({
-    mutationFn: ({ fileIds, targetParentId }: { fileIds: string[]; targetParentId: string | null }) =>
-      batchApi.copy(fileIds, targetParentId),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      clearClipboard();
-      const data = res.data.data;
-      toast({
-        title: '批量复制完成',
-        description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
-      });
-    },
-    onError: (e: any) =>
-      toast({ title: '批量复制失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
-  });
+    [clearSelection, navigate, setPreviewFile]
+  );
 
   const handlePaste = useCallback(() => {
     if (!clipboard || clipboard.files.length === 0) return;
@@ -707,177 +326,59 @@ export default function Files() {
     }
   }, [clipboard, folderId, batchMoveMutation, batchCopyMutation]);
 
-  const handleBatchDelete = () => {
+  const handleBatchDelete = useCallback(() => {
     if (!selectedFiles.length) return;
     if (!confirm(`确定将选中的 ${selectedFiles.length} 个项目移入回收站？`)) return;
     batchDeleteMutation.mutate(selectedFiles);
-  };
+  }, [selectedFiles, batchDeleteMutation]);
 
-  const handleSort = (field: typeof sortBy) =>
-    setSort(field, sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc');
-
-  const handleShare = () => {
-    if (!shareFileId) return;
-    const expiresAt = shareExpiresDays
-      ? new Date(Date.now() + Number(shareExpiresDays) * 86400000).toISOString()
-      : undefined;
-    shareMutation.mutate({
-      fileId: shareFileId,
-      password: sharePassword || undefined,
-      expiresAt,
-      downloadLimit: shareDownloadLimit ? Number(shareDownloadLimit) : undefined,
-    });
-  };
-
-  const getFileContextMenuItems = useCallback(
-    (file: FileItem): ContextMenuItem[] => {
-      return [
-        {
-          id: 'open',
-          label: file.isFolder ? '打开文件夹' : '打开',
-          icon: <Eye className="h-4 w-4" />,
-          action: () => handleFileClick(file),
-        },
-        { id: 'divider1', label: '', divider: true },
-        {
-          id: 'download',
-          label: '下载',
-          icon: <Download className="h-4 w-4" />,
-          action: () => handleDownload(file),
-          disabled: file.isFolder,
-        },
-        {
-          id: 'share',
-          label: '分享',
-          icon: <Share2 className="h-4 w-4" />,
-          action: () => setShareFileId(file.id),
-          disabled: file.isFolder,
-        },
-        {
-          id: 'tags',
-          label: '标签管理',
-          icon: <Tag className="h-4 w-4" />,
-          action: () => setTagsFile(file),
-        },
-        {
-          id: 'permissions',
-          label: '权限管理',
-          icon: <Shield className="h-4 w-4" />,
-          action: () => setPermissionFile(file),
-        },
-        {
-          id: 'folderSettings',
-          label: '文件夹设置',
-          icon: <Settings className="h-4 w-4" />,
-          action: () => setFolderSettingsFile(file),
-          disabled: !file.isFolder,
-        },
-        { id: 'divider2', label: '', divider: true },
-        {
-          id: 'rename',
-          label: '重命名',
-          icon: <Pencil className="h-4 w-4" />,
-          shortcut: 'F2',
-          action: () => setRenameFile(file),
-        },
-        {
-          id: 'move',
-          label: '移动到...',
-          icon: <FolderInput className="h-4 w-4" />,
-          action: () => setMoveFile(file),
-        },
-        {
-          id: 'copy',
-          label: '复制',
-          icon: <Copy className="h-4 w-4" />,
-          shortcut: 'Ctrl+C',
-          action: () => {
-            setClipboard('copy', [file], folderId || null);
-            toast({ title: '已复制到剪贴板' });
-          },
-        },
-        {
-          id: 'cut',
-          label: '剪切',
-          icon: <Scissors className="h-4 w-4" />,
-          shortcut: 'Ctrl+X',
-          action: () => {
-            setClipboard('cut', [file], folderId || null);
-            toast({ title: '已剪切到剪贴板' });
-          },
-        },
-        { id: 'divider3', label: '', divider: true },
-        {
-          id: 'delete',
-          label: '移入回收站',
-          icon: <Trash2 className="h-4 w-4" />,
-          danger: true,
-          action: () => {
-            if (confirm(`将 "${file.name}" 移入回收站？`)) {
-              deleteMutation.mutate(file.id);
-            }
-          },
-        },
-      ];
-    },
-    [folderId, deleteMutation, setClipboard, toast]
+  const handleSort = useCallback(
+    (field: typeof sortBy) => setSort(field, sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc'),
+    [sortBy, sortOrder, setSort]
   );
 
-  const getBackgroundContextMenuItems = useCallback((): ContextMenuItem[] => {
-    const items: ContextMenuItem[] = [
-      {
-        id: 'refresh',
-        label: '刷新',
-        icon: <RefreshCw className="h-4 w-4" />,
-        action: () => refetch(),
-      },
-      { id: 'divider1', label: '', divider: true },
-      {
-        id: 'selectAll',
-        label: '全选',
-        icon: <CheckSquare className="h-4 w-4" />,
-        shortcut: 'Ctrl+A',
-        action: () => selectAll(displayFiles),
-      },
-      {
-        id: 'upload',
-        label: '上传文件',
-        icon: <Upload className="h-4 w-4" />,
-        shortcut: 'Ctrl+U',
-        action: () => fileInputRef.current?.click(),
-      },
-      {
-        id: 'newFolder',
-        label: '新建文件夹',
-        icon: <FolderPlus className="h-4 w-4" />,
-        shortcut: 'Ctrl+Shift+N',
-        action: () => setShowNewFolderDialog(true),
-      },
-    ];
+  const { ContextMenuComponent, handleContextMenu } = useFileContextMenu();
 
-    if (clipboard && clipboard.files.length > 0) {
-      items.push(
-        { id: 'divider2', label: '', divider: true },
-        {
-          id: 'paste',
-          label: `粘贴 (${clipboard.files.length} 个项目)`,
-          icon: <Clipboard className="h-4 w-4" />,
-          shortcut: 'Ctrl+V',
-          action: handlePaste,
-        }
-      );
-    }
-
-    return items;
-  }, [refetch, clipboard, toast, selectAll, displayFiles, handlePaste]);
-
-  const handleContextMenu = (e: React.MouseEvent, file?: FileItem) => {
-    if (file) {
-      openContextMenu(e, getFileContextMenuItems(file));
-    } else {
-      openContextMenu(e, getBackgroundContextMenuItems());
-    }
+  const fileContextMenuCallbacks = {
+    onOpen: handleFileClick,
+    onDownload: handleDownload,
+    onShare: (file: FileItem) => setShareFileId(file.id),
+    onTags: (file: FileItem) => setTagsFile(file),
+    onPermissions: (file: FileItem) => setPermissionFile(file),
+    onFolderSettings: (file: FileItem) => setFolderSettingsFile(file),
+    onRename: (file: FileItem) => setRenameFile(file),
+    onMove: (file: FileItem) => setMoveFile(file),
+    onCopy: (file: FileItem) => {
+      setClipboard('copy', [file], folderId || null);
+      toast({ title: '已复制到剪贴板' });
+    },
+    onCut: (file: FileItem) => {
+      setClipboard('cut', [file], folderId || null);
+      toast({ title: '已剪切到剪贴板' });
+    },
+    onDelete: (file: FileItem) => {
+      if (confirm(`将 "${file.name}" 移入回收站？`)) {
+        deleteMutation.mutate(file.id);
+      }
+    },
   };
+
+  const backgroundContextMenuCallbacks = {
+    onRefresh: () => refetch(),
+    onSelectAll: () => selectAll(displayFiles),
+    onUpload: () => fileInputRef.current?.click(),
+    onNewFolder: () => setShowNewFolderDialog(true),
+    onPaste: handlePaste,
+    hasClipboard: !!clipboard && clipboard.files.length > 0,
+    clipboardCount: clipboard?.files.length || 0,
+  };
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent, file?: FileItem) => {
+      handleContextMenu(e, file, fileContextMenuCallbacks, backgroundContextMenuCallbacks);
+    },
+    [handleContextMenu, fileContextMenuCallbacks, backgroundContextMenuCallbacks]
+  );
 
   useFileKeyboardShortcuts({
     onSelectAll: () => selectAll(displayFiles),
@@ -931,6 +432,15 @@ export default function Files() {
     { mode: 'grid', icon: Grid, label: '网格' },
     { mode: 'masonry', icon: Columns, label: '瀑布流' },
   ];
+
+  const handleShareConfirm = useCallback(
+    (params: { password?: string; expiresAt?: string; downloadLimit?: number }) => {
+      if (!shareFileId) return;
+      shareMutation.mutate({ fileId: shareFileId, ...params });
+      setShareFileId(null);
+    },
+    [shareFileId, shareMutation, setShareFileId]
+  );
 
   return (
     <div className="space-y-5" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -1176,7 +686,12 @@ export default function Files() {
           </Button>
 
           <label className="inline-flex">
-            <Button variant="outline" size="sm" asChild disabled={!currentFolderInfo?.permissions?.some(p => p.permission === 'write')}>
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
+            >
               <span>
                 <Upload className="h-4 w-4 mr-1.5" />
                 上传文件
@@ -1190,7 +705,7 @@ export default function Files() {
               onChange={(e) => {
                 Array.from(e.target.files || []).forEach((file) => {
                   const key = `${file.name}-${Date.now()}`;
-                  uploadMutation.mutate({ file, parentId: folderId || null, key });
+                  handleUpload(file, key);
                 });
                 e.target.value = '';
               }}
@@ -1198,7 +713,12 @@ export default function Files() {
           </label>
 
           <label className="inline-flex">
-            <Button variant="outline" size="sm" asChild disabled={!currentFolderInfo?.permissions?.some(p => p.permission === 'write')}>
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
+            >
               <span>
                 <FolderInput className="h-4 w-4 mr-1.5" />
                 上传文件夹
@@ -1215,9 +735,7 @@ export default function Files() {
                 const files = Array.from(e.target.files || []);
                 if (files.length === 0) return;
 
-                const rootFolderName = files[0]
-                  ? ((files[0] as any).webkitRelativePath as string).split('/')[0]
-                  : '';
+                const rootFolderName = files[0] ? ((files[0] as any).webkitRelativePath as string).split('/')[0] : '';
                 const totalFiles = files.length;
                 const folderPathSet = new Set<string>();
 
@@ -1375,68 +893,26 @@ export default function Files() {
           bucketId={newFolderBucketId}
           onNameChange={setNewFolderName}
           onBucketChange={setNewFolderBucketId}
-          onConfirm={() => newFolderName.trim() && createFolderMutation.mutate(newFolderName.trim())}
-          onCancel={() => {
-            setShowNewFolderDialog(false);
-            setNewFolderName('');
-            setNewFolderBucketId(null);
-          }}
+          onConfirm={() =>
+            newFolderName.trim() &&
+            createFolderMutation.mutate({
+              name: newFolderName.trim(),
+              parentId: folderId || null,
+              bucketId: newFolderBucketId,
+            })
+          }
+          onCancel={resetNewFolderDialog}
           loading={createFolderMutation.isPending}
         />
       )}
 
       {shareFileId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-lg font-semibold mb-4">创建分享链接</h2>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">访问密码（可选）</label>
-                <Input
-                  placeholder="留空则不设密码"
-                  value={sharePassword}
-                  onChange={(e) => setSharePassword(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">有效天数（可选）</label>
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="留空则使用默认"
-                  value={shareExpiresDays}
-                  onChange={(e) => setShareExpiresDays(e.target.value ? Number(e.target.value) : '')}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">下载次数限制（可选）</label>
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="留空则不限次数"
-                  value={shareDownloadLimit}
-                  onChange={(e) => setShareDownloadLimit(e.target.value ? Number(e.target.value) : '')}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShareFileId(null);
-                  setSharePassword('');
-                  setShareExpiresDays('');
-                  setShareDownloadLimit('');
-                }}
-              >
-                取消
-              </Button>
-              <Button onClick={handleShare} disabled={shareMutation.isPending}>
-                {shareMutation.isPending ? '创建中...' : '创建并复制链接'}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ShareDialog
+          fileId={shareFileId}
+          isPending={shareMutation.isPending}
+          onConfirm={handleShareConfirm}
+          onCancel={() => setShareFileId(null)}
+        />
       )}
 
       {renameFile && (
@@ -1447,6 +923,7 @@ export default function Files() {
           onCancel={() => setRenameFile(null)}
         />
       )}
+
       {moveFile && (
         <MoveFolderPicker
           excludeIds={[moveFile.id]}
@@ -1455,6 +932,7 @@ export default function Files() {
           onCancel={() => setMoveFile(null)}
         />
       )}
+
       {previewFile && (
         <FilePreview
           file={previewFile}
@@ -1535,491 +1013,27 @@ export default function Files() {
         </div>
       )}
 
-      {isLoading ? (
-        <div className="text-center py-16 text-muted-foreground">加载中...</div>
-      ) : displayFiles.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground space-y-2" onContextMenu={(e) => handleContextMenu(e)}>
-          <div className="text-6xl opacity-20">📂</div>
-          <p className="font-medium">{searchQuery ? `没有找到 "${searchQuery}"` : '暂无文件'}</p>
-          <p className="text-sm">{searchQuery ? '换个关键词试试' : '拖放文件或整个文件夹到这里上传'}</p>
-        </div>
-      ) : galleryMode && hasImages ? (
-        <div className="masonry-grid">
-          {imageFiles.map((file) => (
-            <GalleryItem
-              key={file.id}
-              file={file}
-              token={token || ''}
-              onClick={() => setPreviewFile(file)}
-              onDelete={() => confirm(`删除 "${file.name}"？`) && deleteMutation.mutate(file.id)}
-              onContextMenu={(e) => handleContextMenu(e, file)}
-            />
-          ))}
-        </div>
-      ) : viewMode === 'list' ? (
-        <div className="bg-card border rounded-xl overflow-hidden divide-y" onContextMenu={(e) => handleContextMenu(e)}>
-          {displayFiles.map((file) => (
-            <ListItem
-              key={file.id}
-              file={file}
-              isSelected={selectedFiles.includes(file.id)}
-              tags={fileTagsMap[file.id]}
-              onClick={handleFileClick}
-              onToggleSelect={toggleFileSelection}
-              onDownload={handleDownload}
-              onShare={setShareFileId}
-              onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && deleteMutation.mutate(f.id)}
-              onRename={setRenameFile}
-              onPreview={setPreviewFile}
-              onMove={setMoveFile}
-              onContextMenu={handleContextMenu}
-              onTagClick={handleTagClick}
-            />
-          ))}
-        </div>
-      ) : viewMode === 'grid' ? (
-        <div className="file-grid" onContextMenu={(e) => handleContextMenu(e)}>
-          {displayFiles.map((file) => (
-            <GridItem
-              key={file.id}
-              file={file}
-              token={token || ''}
-              isSelected={selectedFiles.includes(file.id)}
-              tags={fileTagsMap[file.id]}
-              onClick={handleFileClick}
-              onToggleSelect={toggleFileSelection}
-              onDownload={handleDownload}
-              onShare={setShareFileId}
-              onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && deleteMutation.mutate(f.id)}
-              onRename={setRenameFile}
-              onPreview={setPreviewFile}
-              onMove={setMoveFile}
-              onContextMenu={handleContextMenu}
-              onTagClick={handleTagClick}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="masonry-grid" onContextMenu={(e) => handleContextMenu(e)}>
-          {displayFiles.map((file) => (
-            <MasonryItem
-              key={file.id}
-              file={file}
-              token={token || ''}
-              isSelected={selectedFiles.includes(file.id)}
-              tags={fileTagsMap[file.id]}
-              onClick={handleFileClick}
-              onToggleSelect={toggleFileSelection}
-              onDownload={handleDownload}
-              onShare={setShareFileId}
-              onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && deleteMutation.mutate(f.id)}
-              onRename={setRenameFile}
-              onPreview={setPreviewFile}
-              onMove={setMoveFile}
-              onContextMenu={handleContextMenu}
-              onTagClick={handleTagClick}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ItemProps {
-  file: FileItem;
-  isSelected?: boolean;
-  token?: string;
-  tags?: any[];
-  onClick: (f: FileItem) => void;
-  onToggleSelect: (id: string, file?: FileItem) => void;
-  onDownload: (f: FileItem) => void;
-  onShare: (id: string) => void;
-  onDelete: (f: FileItem) => void;
-  onRename: (f: FileItem) => void;
-  onPreview: (f: FileItem) => void;
-  onMove: (f: FileItem) => void;
-  onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
-  onTagClick?: (tagName: string) => void;
-}
-
-function ListItem({
-  file,
-  isSelected,
-  tags,
-  onClick,
-  onToggleSelect,
-  onDownload,
-  onShare,
-  onDelete,
-  onRename,
-  onPreview,
-  onMove,
-  onContextMenu,
-  onTagClick,
-}: ItemProps) {
-  const canPreview = !file.isFolder && isPreviewable(file.mimeType);
-  const { isMobile } = useResponsive();
-
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 px-4 py-3 hover:bg-accent/40 transition-colors cursor-pointer group',
-        isSelected && 'bg-primary/5'
-      )}
-      onClick={() => onClick(file)}
-      onContextMenu={(e) => onContextMenu(e, file)}
-    >
-      <button
-        className="flex-shrink-0 transition-opacity"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleSelect(file.id, file);
-        }}
-      >
-        {isSelected ? (
-          <CheckSquare className="h-4 w-4 text-primary" />
-        ) : (
-          <Square className="h-4 w-4 text-muted-foreground" />
-        )}
-      </button>
-      <div className="flex-shrink-0">
-        <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-medium truncate text-sm">{file.name}</p>
-          {tags && tags.length > 0 && <FileTagsDisplay tags={tags} size="xs" onTagClick={onTagClick} />}
-        </div>
-        <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
-          {file.isFolder ? '文件夹' : formatBytes(file.size)} · {formatDate(file.updatedAt)}
-          {file.mimeType && !file.isFolder && <span className="opacity-40 hidden sm:inline">{file.mimeType}</span>}
-          {(file as any).bucket && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted border">
-              <Database className="h-2.5 w-2.5" />
-              {(file as any).bucket.name}
-            </span>
-          )}
-          {(file as any).owner && !(file as any).isOwner && (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-              <User className="h-2.5 w-2.5" />
-              {(file as any).owner.name || (file as any).owner.email}
-            </span>
-          )}
-          {(file as any).accessPermission && !(file as any).isOwner && (
-            <span
-              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${
-                (file as any).accessPermission === 'admin'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800'
-                  : (file as any).accessPermission === 'write'
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-              }`}
-            >
-              {(file as any).accessPermission === 'admin'
-                ? '管理'
-                : (file as any).accessPermission === 'write'
-                  ? '读写'
-                  : '只读'}
-            </span>
-          )}
-        </p>
-      </div>
-      <div
-        className={cn(
-          'flex items-center gap-0.5 transition-opacity',
-          isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {canPreview && (
-          <ActionBtn title="预览" onClick={() => onPreview(file)}>
-            <Eye className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="重命名" onClick={() => onRename(file)}>
-          <Pencil className="h-3.5 w-3.5" />
-        </ActionBtn>
-        <ActionBtn title="移动到…" onClick={() => onMove(file)}>
-          <FolderInput className="h-3.5 w-3.5" />
-        </ActionBtn>
-        {!file.isFolder && (
-          <ActionBtn title="下载" onClick={() => onDownload(file)}>
-            <Download className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        {!file.isFolder && (
-          <ActionBtn title="分享" onClick={() => onShare(file.id)}>
-            <Share2 className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="移入回收站" onClick={() => onDelete(file)} danger>
-          <Trash2 className="h-3.5 w-3.5" />
-        </ActionBtn>
-      </div>
-    </div>
-  );
-}
-
-function GridItem({
-  file,
-  isSelected,
-  token,
-  tags,
-  onClick,
-  onToggleSelect,
-  onDownload,
-  onShare,
-  onDelete,
-  onRename,
-  onPreview,
-  onMove,
-  onContextMenu,
-  onTagClick,
-}: ItemProps) {
-  const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
-  const canPreview = !file.isFolder && isPreviewable(file.mimeType);
-  const isImage = file.mimeType?.startsWith('image/');
-  const { isMobile } = useResponsive();
-
-  return (
-    <div
-      className={cn(
-        'relative bg-card border rounded-xl overflow-hidden cursor-pointer group transition-all hover:shadow-md hover:-translate-y-0.5',
-        isSelected && 'ring-2 ring-primary'
-      )}
-      onClick={() => onClick(file)}
-      onContextMenu={(e) => onContextMenu(e, file)}
-    >
-      <div className={cn('flex items-center justify-center h-28 relative', !isImage && bg)}>
-        {isImage ? (
-          <img
-            src={filesApi.previewUrl(file.id, token)}
-            alt={file.name}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as any).style.display = 'none';
-            }}
-          />
-        ) : (
-          <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />
-        )}
-        <button
-          className={cn(
-            'absolute top-2 left-2 transition-opacity z-10',
-            isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleSelect(file.id, file);
-          }}
-        >
-          <div
-            className={cn(
-              'rounded w-5 h-5 flex items-center justify-center',
-              isSelected ? 'bg-primary text-primary-foreground' : 'bg-black/40 text-white'
-            )}
-          >
-            {isSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-          </div>
-        </button>
-      </div>
-      <div className="px-3 py-2 border-t">
-        <p className="text-xs font-medium truncate">{file.name}</p>
-        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <p className="text-xs text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
-          {(file as any).bucket && (
-            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-muted border">
-              <Database className="h-2 w-2" />
-              {(file as any).bucket.name}
-            </span>
-          )}
-          {(file as any).owner && !(file as any).isOwner && (
-            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-              <User className="h-2 w-2" />
-              {(file as any).owner.name || (file as any).owner.email}
-            </span>
-          )}
-        </div>
-        {tags && tags.length > 0 && <FileTagsDisplay tags={tags} size="xs" className="mt-1" onTagClick={onTagClick} />}
-      </div>
-      <div
-        className={cn(
-          'absolute inset-0 bg-black/50 transition-opacity flex items-center justify-center gap-1.5 rounded-xl',
-          isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {canPreview && (
-          <ActionBtn title="预览" onClick={() => onPreview(file)} light>
-            <Eye className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="重命名" onClick={() => onRename(file)} light>
-          <Pencil className="h-3.5 w-3.5" />
-        </ActionBtn>
-        <ActionBtn title="移动" onClick={() => onMove(file)} light>
-          <FolderInput className="h-3.5 w-3.5" />
-        </ActionBtn>
-        {!file.isFolder && (
-          <ActionBtn title="下载" onClick={() => onDownload(file)} light>
-            <Download className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        {!file.isFolder && (
-          <ActionBtn title="分享" onClick={() => onShare(file.id)} light>
-            <Share2 className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="删除" onClick={() => onDelete(file)} danger light>
-          <Trash2 className="h-3.5 w-3.5" />
-        </ActionBtn>
-      </div>
-    </div>
-  );
-}
-
-function MasonryItem({
-  file,
-  isSelected,
-  token,
-  tags,
-  onClick,
-  onToggleSelect,
-  onDownload: _onDownload,
-  onShare: _onShare,
-  onDelete: _onDelete,
-  onRename: _onRename,
-  onPreview: _onPreview,
-  onMove: _onMove,
-  onContextMenu,
-  onTagClick,
-}: ItemProps) {
-  const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
-  const isImage = file.mimeType?.startsWith('image/');
-  const { isMobile } = useResponsive();
-
-  return (
-    <div
-      className={cn(
-        'masonry-item relative bg-card border rounded-lg overflow-hidden cursor-pointer group',
-        isSelected && 'ring-2 ring-primary'
-      )}
-      onClick={() => onClick(file)}
-      onContextMenu={(e) => onContextMenu(e, file)}
-    >
-      <div className={cn('relative', !isImage && bg)}>
-        {isImage ? (
-          <img
-            src={filesApi.previewUrl(file.id, token)}
-            alt={file.name}
-            className="w-full block object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="flex items-center justify-center p-8">
-            <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />
-          </div>
-        )}
-        <button
-          className={cn(
-            'absolute top-2 left-2 transition-opacity z-10',
-            isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleSelect(file.id, file);
-          }}
-        >
-          <div
-            className={cn(
-              'rounded w-5 h-5 flex items-center justify-center',
-              isSelected ? 'bg-primary text-primary-foreground' : 'bg-black/40 text-white'
-            )}
-          >
-            {isSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
-          </div>
-        </button>
-      </div>
-      <div className="px-2 py-1.5 border-t">
-        <p className="text-xs font-medium truncate">{file.name}</p>
-        <p className="text-[10px] text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
-        {tags && tags.length > 0 && (
-          <FileTagsDisplay tags={tags} size="xs" className="mt-0.5" onTagClick={onTagClick} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function GalleryItem({
-  file,
-  token,
-  onClick,
-  onDelete,
-  onContextMenu,
-}: {
-  file: FileItem;
-  token?: string;
-  onClick: () => void;
-  onDelete: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-}) {
-  const { isMobile } = useResponsive();
-
-  return (
-    <div
-      className="masonry-item relative rounded-lg overflow-hidden group cursor-pointer"
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-    >
-      <img
-        src={filesApi.previewUrl(file.id, token)}
-        alt={file.name}
-        className="w-full block object-cover"
-        loading="lazy"
+      <FileListContainer
+        viewMode={viewMode}
+        galleryMode={galleryMode}
+        displayFiles={displayFiles}
+        imageFiles={imageFiles}
+        isLoading={isLoading}
+        searchQuery={searchQuery}
+        selectedFiles={selectedFiles}
+        fileTagsMap={fileTagsMap}
+        token={token || ''}
+        onFileClick={handleFileClick}
+        onToggleSelect={toggleFileSelection}
+        onDownload={handleDownload}
+        onShare={setShareFileId}
+        onDelete={(file) => deleteMutation.mutate(file.id)}
+        onRename={setRenameFile}
+        onPreview={setPreviewFile}
+        onMove={setMoveFile}
+        onContextMenu={onContextMenu}
+        onTagClick={handleTagClick}
       />
-      <div
-        className={cn(
-          'absolute inset-0 bg-black/40 transition-opacity flex flex-col justify-end p-2',
-          isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        )}
-      >
-        <p className="text-white text-xs font-medium truncate">{file.name}</p>
-        <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
-          <ActionBtn title="删除" onClick={onDelete} danger light>
-            <Trash2 className="h-3 w-3" />
-          </ActionBtn>
-        </div>
-      </div>
     </div>
-  );
-}
-
-interface ActionBtnProps {
-  title: string;
-  onClick: () => void;
-  danger?: boolean;
-  light?: boolean;
-  children: React.ReactNode;
-}
-function ActionBtn({ title, onClick, danger, light, children }: ActionBtnProps) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      className={cn(
-        'h-7 w-7 rounded-md flex items-center justify-center transition-colors',
-        light
-          ? danger
-            ? 'bg-white/10 hover:bg-red-500/80 text-white'
-            : 'bg-white/10 hover:bg-white/25 text-white'
-          : danger
-            ? 'hover:bg-red-500/10 hover:text-red-500 text-muted-foreground'
-            : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-      )}
-    >
-      {children}
-    </button>
   );
 }
