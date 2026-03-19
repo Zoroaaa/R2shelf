@@ -306,6 +306,21 @@ export default function Files() {
     },
   });
 
+  // 加载所有存储桶（用于上传前检查 provider）
+  const { data: allBuckets = [] } = useQuery<StorageBucket[]>({
+    queryKey: ['buckets'],
+    queryFn: () => bucketsApi.list().then((r) => r.data.data ?? []),
+    staleTime: 30000,
+  });
+
+  // 加载当前文件夹信息（获取其关联的 bucketId）
+  const { data: currentFolderInfo } = useQuery({
+    queryKey: ['folder-info', folderId],
+    enabled: !!folderId,
+    queryFn: () => filesApi.get(folderId!).then((r) => r.data.data),
+    staleTime: 30000,
+  });
+
   const {
     data: files = [],
     isLoading,
@@ -435,9 +450,33 @@ export default function Files() {
       toast({ title: '创建失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
+  // ── Telegram 上传前置校验 ────────────────────────────────────────────
+  const TG_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+  function getEffectiveBucket(): StorageBucket | null {
+    // 优先用当前文件夹关联的桶，否则找默认桶
+    const folderBucketId = (currentFolderInfo as any)?.bucketId ?? null;
+    if (folderBucketId) {
+      return allBuckets.find((b) => b.id === folderBucketId) ?? null;
+    }
+    return allBuckets.find((b) => b.isDefault) ?? null;
+  }
+
+  function checkTelegramLimit(file: File): string | null {
+    const bucket = getEffectiveBucket();
+    if (bucket?.provider === 'telegram' && file.size > TG_MAX_FILE_SIZE) {
+      return `「${file.name}」超出 Telegram 存储桶 50MB 单文件限制（当前 ${(file.size / 1024 / 1024).toFixed(1)} MB）`;
+    }
+    return null;
+  }
+
   const uploadMutation = useMutation({
-    mutationFn: ({ file, parentId, key }: { file: File; parentId: string | null; key: string }) =>
-      uploadManager.startUpload(file, parentId, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p }))),
+    mutationFn: ({ file, parentId, key }: { file: File; parentId: string | null; key: string }) => {
+      // 前置校验：Telegram 桶 50MB 限制
+      const limitErr = checkTelegramLimit(file);
+      if (limitErr) return Promise.reject(new Error(limitErr));
+      return uploadManager.startUpload(file, parentId, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })));
+    },
     onSuccess: (_, { key }) => {
       queryClient.invalidateQueries({ queryKey: ['files', folderId] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
