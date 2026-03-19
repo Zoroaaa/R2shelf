@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, gt, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, gt, lt, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, users, loginAttempts, userDevices, files, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { signJWT, hashPassword, verifyPassword } from '../lib/crypto';
