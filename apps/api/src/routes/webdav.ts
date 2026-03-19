@@ -7,6 +7,12 @@
  * - 支持Windows/macOS/Linux挂载
  * - 文件读写与目录管理
  * - 锁定与解锁（LOCK/UNLOCK，兼容 Windows 资源管理器与 WinSCP）
+ *
+ * Windows 资源管理器兼容性说明：
+ * - 所有 401 响应必须携带 DAV 头，否则 Mini-Redirector 不认为这是 WebDAV 服务器，
+ *   直接报"输入的文件夹似乎无效"且不弹出密码框。
+ * - PROPFIND 响应的根节点 <href> 必须与请求路径精确匹配（不能多/少尾部斜杠）。
+ * - 必须实现 LOCK/UNLOCK，否则写操作前 Windows 发出的 LOCK 请求得到 405 后卡死。
  */
 
 import { Hono, Context } from 'hono';
@@ -24,13 +30,19 @@ type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 // DAV 路由前缀，与 index.ts 中 app.route('/dav', ...) 保持一致
 const DAV_PREFIX = '/dav';
 
+// 所有响应（包括 401）都需要携带的 DAV 基础头
+// Windows Mini-Redirector 会在 401 响应上二次确认 DAV 头，缺失则报"文件夹无效"
+const DAV_BASE_HEADERS = {
+  DAV: '1, 2',
+  'MS-Author-Via': 'DAV',
+};
+
 app.options('/*', (c) => {
   return new Response(null, {
     status: 200,
     headers: {
+      ...DAV_BASE_HEADERS,
       Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
-      DAV: '1, 2',
-      'MS-Author-Via': 'DAV',
       'Content-Length': '0',
     },
   });
@@ -40,9 +52,13 @@ app.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Basic ')) {
+    // 修复：401 必须携带 DAV 头，Windows Mini-Redirector 依此判断服务器是否支持 WebDAV
     return new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
+      headers: {
+        ...DAV_BASE_HEADERS,
+        'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"',
+      },
     });
   }
 
@@ -60,7 +76,10 @@ app.use('*', async (c, next) => {
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return new Response('Unauthorized', {
         status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
+        headers: {
+          ...DAV_BASE_HEADERS,
+          'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"',
+        },
       });
     }
 
@@ -69,7 +88,10 @@ app.use('*', async (c, next) => {
   } catch {
     return new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
+      headers: {
+        ...DAV_BASE_HEADERS,
+        'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"',
+      },
     });
   }
 });
@@ -84,7 +106,7 @@ app.all('/*', async (c) => {
 
   switch (method) {
     case 'PROPFIND':
-      return handlePropfind(c, userId, path);
+      return handlePropfind(c, userId, path, rawPath);
     case 'GET':
     case 'HEAD':
       return handleGet(c, userId, path, method === 'HEAD');
@@ -99,14 +121,17 @@ app.all('/*', async (c) => {
     case 'COPY':
       return handleCopy(c, userId, path);
     case 'LOCK':
-      return handleLock(c, path);
+      return handleLock(c, rawPath);
     case 'UNLOCK':
       // UNLOCK：无状态实现，直接返回成功
-      return new Response(null, { status: 204 });
+      return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
     case 'PROPPATCH':
-      return handleProppatch(c, path);
+      return handleProppatch(c, rawPath);
     default:
-      return new Response('Method Not Allowed', { status: 405 });
+      return new Response('Method Not Allowed', {
+        status: 405,
+        headers: { ...DAV_BASE_HEADERS, Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK' },
+      });
   }
 });
 
@@ -126,19 +151,24 @@ type FileRow = typeof files.$inferSelect;
 /**
  * 构建 PROPFIND 响应 XML。
  *
- * 关键修复：<href> 必须使用完整请求路径（含 /dav 前缀），
- * 否则 Windows 资源管理器会因路径不匹配而报"找不到路径"。
+ * @param items       当前目录下的文件/文件夹列表
+ * @param rawPath     原始请求路径（含 /dav 前缀，用于根节点 href 精确匹配）
+ * @param isRoot      是否渲染根集合条目
+ *
+ * 关键修复：
+ * 1. 根节点 <href> 使用 rawPath（即请求的原始路径），而非构造值，
+ *    确保与 Windows 请求的路径精确匹配。
+ * 2. 子项 <href> 统一加 /dav 前缀。
  */
-function buildPropfindXML(items: FileRow[], requestPath: string, isRoot: boolean = false): string {
+function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
-    // 根节点 href：确保带 /dav 前缀且以 / 结尾
-    const rootHref = DAV_PREFIX + (requestPath === '/' || requestPath === '' ? '/' : requestPath);
-    const normalizedRootHref = rootHref.endsWith('/') ? rootHref : rootHref + '/';
+    // 根节点 href 必须与请求路径精确匹配，Windows 会用它来验证路径合法性
+    const rootHref = rawPath;
     responses.push(`
   <response>
-    <href>${escapeXml(normalizedRootHref)}</href>
+    <href>${escapeXml(rootHref)}</href>
     <propstat>
       <prop>
         <displayname></displayname>
@@ -152,7 +182,6 @@ function buildPropfindXML(items: FileRow[], requestPath: string, isRoot: boolean
   }
 
   items.forEach((file) => {
-    // 修复：href 必须包含 /dav 前缀，与实际请求 URL 保持一致
     let logicalPath = file.path;
     if (!logicalPath.startsWith('/')) logicalPath = '/' + logicalPath;
     if (file.isFolder && !logicalPath.endsWith('/')) logicalPath += '/';
@@ -179,10 +208,15 @@ function buildPropfindXML(items: FileRow[], requestPath: string, isRoot: boolean
   return `<?xml version="1.0" encoding="utf-8"?>\n<multistatus xmlns="DAV:">${responses.join('')}\n</multistatus>`;
 }
 
-async function handlePropfind(c: AppContext, userId: string, path: string) {
+async function handlePropfind(c: AppContext, userId: string, path: string, rawPath: string) {
   const depth = c.req.header('Depth') || '1';
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
+
+  const xmlHeaders = {
+    'Content-Type': 'application/xml; charset=utf-8',
+    ...DAV_BASE_HEADERS,
+  };
 
   let parentCondition;
 
@@ -193,9 +227,9 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
     if (parentFolder) {
       parentCondition = eq(files.parentId, parentFolder.id);
     } else {
-      return new Response(buildPropfindXML([], path, false), {
+      return new Response(buildPropfindXML([], rawPath, false), {
         status: 207,
-        headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+        headers: xmlHeaders,
       });
     }
   }
@@ -208,23 +242,23 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
 
   if (depth === '0') {
     if (isRoot) {
-      return new Response(buildPropfindXML([], path, true), {
+      return new Response(buildPropfindXML([], rawPath, true), {
         status: 207,
-        headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+        headers: xmlHeaders,
       });
     } else {
       const current = await findFileByPath(db, userId, path);
       if (current) items.unshift(current);
-      return new Response(buildPropfindXML(items, path, false), {
+      return new Response(buildPropfindXML(items, rawPath, false), {
         status: 207,
-        headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+        headers: xmlHeaders,
       });
     }
   }
 
-  return new Response(buildPropfindXML(items, path, true), {
+  return new Response(buildPropfindXML(items, rawPath, true), {
     status: 207,
-    headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+    headers: xmlHeaders,
   });
 }
 
@@ -261,6 +295,7 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
     return new Response(headOnly ? null : 'Root Collection', {
       status: 200,
       headers: {
+        ...DAV_BASE_HEADERS,
         'Content-Type': 'text/html',
         'Content-Length': '14',
       },
@@ -269,22 +304,26 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
 
   const file = await findFileByPath(db, userId, path);
 
-  if (!file) return new Response('Not Found', { status: 404 });
-  if (file.isFolder) return new Response('Is a collection', { status: 400 });
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+  if (file.isFolder) return new Response('Is a collection', { status: 400, headers: DAV_BASE_HEADERS });
 
   const encKeyG = getEncryptionKey(c.env);
   const bucketCfgG = await resolveBucketConfig(db, userId, encKeyG, file.bucketId, file.parentId);
-  const hdrs = { 'Content-Type': file.mimeType || 'application/octet-stream', 'Content-Length': file.size.toString() };
+  const hdrs = {
+    ...DAV_BASE_HEADERS,
+    'Content-Type': file.mimeType || 'application/octet-stream',
+    'Content-Length': file.size.toString(),
+  };
   if (bucketCfgG) {
     if (headOnly) return new Response(null, { headers: hdrs });
     const s3Res = await s3Get(bucketCfgG, file.r2Key);
     return new Response(s3Res.body, { headers: hdrs });
   } else if (c.env.FILES) {
     const r2Object = await c.env.FILES.get(file.r2Key);
-    if (!r2Object) return new Response('Not Found', { status: 404 });
+    if (!r2Object) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
     return new Response(headOnly ? null : r2Object.body, { headers: hdrs });
   }
-  return new Response('Storage not configured', { status: 500 });
+  return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
 }
 
 async function handlePut(c: AppContext, userId: string, path: string) {
@@ -349,15 +388,14 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
 
-  // 配额检查（仅对新文件；覆盖时按差额，此处简化为全量检查）
   if (!existingFile) {
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow && userRow.storageUsed + body.byteLength > userRow.storageQuota) {
-      return new Response('Insufficient Storage', { status: 507 });
+      return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
     }
     if (bucketCfgP) {
       const quotaErr = await checkBucketQuota(db, bucketCfgP.id, body.byteLength);
-      if (quotaErr) return new Response(quotaErr, { status: 507 });
+      if (quotaErr) return new Response(quotaErr, { status: 507, headers: DAV_BASE_HEADERS });
     }
   }
 
@@ -366,13 +404,12 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   } else if (c.env.FILES) {
     await c.env.FILES.put(r2Key, body, { httpMetadata: { contentType: mimeType } });
   } else {
-    return new Response('Storage not configured', { status: 500 });
+    return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
   }
 
   if (existingFile) {
     await db.update(files).set({ size: body.byteLength, mimeType, updatedAt: now }).where(eq(files.id, fileId));
 
-    // 更新用户存储用量（覆盖写时计算大小差额）
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow) {
       const sizeDelta = body.byteLength - existingFile.size;
@@ -401,7 +438,6 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     });
     if (bucketCfgP) await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
 
-    // 更新用户存储用量（新文件）
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow) {
       await db
@@ -411,7 +447,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     }
   }
 
-  return new Response(null, { status: existingFile ? 204 : 201 });
+  return new Response(null, { status: existingFile ? 204 : 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
@@ -423,14 +459,14 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
-    if (!parentFolder) return new Response('Conflict: parent not found', { status: 409 });
+    if (!parentFolder) return new Response('Conflict: parent not found', { status: 409, headers: DAV_BASE_HEADERS });
     parentId = parentFolder.id;
   }
 
   const normalizedPath = path.endsWith('/') ? path : path + '/';
 
   const existing = await findFileByPath(db, userId, normalizedPath);
-  if (existing) return new Response('Method Not Allowed: already exists', { status: 405 });
+  if (existing) return new Response('Method Not Allowed: already exists', { status: 405, headers: DAV_BASE_HEADERS });
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -452,14 +488,14 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
     deletedAt: null,
   });
 
-  return new Response(null, { status: 201 });
+  return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleDelete(c: AppContext, userId: string, path: string) {
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
-  if (!file) return new Response('Not Found', { status: 404 });
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
   if (!file.isFolder) {
     const encKeyD = getEncryptionKey(c.env);
@@ -474,7 +510,6 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
     } else if (c.env.FILES) {
       await c.env.FILES.delete(file.r2Key);
     }
-    // 更新用户存储用量
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow) {
       await db
@@ -484,22 +519,21 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
     }
   }
   await db.delete(files).where(eq(files.id, file.id));
-  return new Response(null, { status: 204 });
+  return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
 }
 
 async function handleMove(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
-  if (!destination) return new Response('Destination header required', { status: 400 });
+  if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
   const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
-  if (!file) return new Response('Not Found', { status: 404 });
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
   const newName = destPath.split('/').pop() || file.name;
 
-  // 解析目标路径的父级文件夹 ID，确保 parentId 与 path 保持一致
   const destParentPath = destPath.lastIndexOf('/') > 0 ? destPath.slice(0, destPath.lastIndexOf('/')) : '/';
   let destParentId: string | null = null;
   if (destParentPath !== '/') {
@@ -512,18 +546,18 @@ async function handleMove(c: AppContext, userId: string, path: string) {
     .set({ name: newName, path: destPath, parentId: destParentId, updatedAt: new Date().toISOString() })
     .where(eq(files.id, file.id));
 
-  return new Response(null, { status: 201 });
+  return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleCopy(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
-  if (!destination) return new Response('Destination header required', { status: 400 });
+  if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
   const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
-  if (!file) return new Response('Not Found', { status: 404 });
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
   const newName = destPath.split('/').pop() || file.name;
   const newId = crypto.randomUUID();
@@ -581,23 +615,17 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
     }
   }
 
-  return new Response(null, { status: 201 });
+  return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
 /**
  * LOCK 处理器
  *
- * 修复说明：
- * Windows 资源管理器和 WinSCP 在执行任何写操作（PUT/MKCOL/MOVE/DELETE）前
- * 都会先发送 LOCK 请求。原实现缺少此处理器，导致返回 405 Method Not Allowed，
- * 进而使 WinSCP 进入无限重试/等待状态（表现为卡死）。
- *
- * 此实现为无状态 LOCK（不持久化 lock token），对于单用户场景完全够用。
- * 若需要多用户并发写保护，需引入 KV 存储 token 并在 UNLOCK 时验证。
+ * Windows 资源管理器和 WinSCP 在写操作前会先发 LOCK 请求。
+ * 无状态实现：每次返回新 token，不持久化。单用户场景完全够用。
  */
-function handleLock(c: AppContext, path: string) {
+function handleLock(c: AppContext, rawPath: string) {
   const token = `urn:uuid:${crypto.randomUUID()}`;
-  const lockRootHref = DAV_PREFIX + (path.startsWith('/') ? path : '/' + path);
 
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <prop xmlns="DAV:">
@@ -609,7 +637,7 @@ function handleLock(c: AppContext, path: string) {
       <owner/>
       <timeout>Second-3600</timeout>
       <locktoken><href>${escapeXml(token)}</href></locktoken>
-      <lockroot><href>${escapeXml(lockRootHref)}</href></lockroot>
+      <lockroot><href>${escapeXml(rawPath)}</href></lockroot>
     </activelock>
   </lockdiscovery>
 </prop>`;
@@ -617,6 +645,7 @@ function handleLock(c: AppContext, path: string) {
   return new Response(xml, {
     status: 200,
     headers: {
+      ...DAV_BASE_HEADERS,
       'Content-Type': 'application/xml; charset=utf-8',
       'Lock-Token': `<${token}>`,
     },
@@ -626,14 +655,13 @@ function handleLock(c: AppContext, path: string) {
 /**
  * PROPPATCH 处理器
  *
- * OSSshelf 属性均为只读，返回标准 403 响应使客户端不会因无响应而卡住。
+ * OSSshelf 属性均为只读，返回标准 403 响应防止客户端因无响应而挂起。
  */
-function handleProppatch(c: AppContext, path: string) {
-  const href = DAV_PREFIX + (path.startsWith('/') ? path : '/' + path);
+function handleProppatch(c: AppContext, rawPath: string) {
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <multistatus xmlns="DAV:">
   <response>
-    <href>${escapeXml(href)}</href>
+    <href>${escapeXml(rawPath)}</href>
     <propstat>
       <prop/>
       <status>HTTP/1.1 403 Forbidden</status>
@@ -643,7 +671,10 @@ function handleProppatch(c: AppContext, path: string) {
 
   return new Response(xml, {
     status: 207,
-    headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+    headers: {
+      ...DAV_BASE_HEADERS,
+      'Content-Type': 'application/xml; charset=utf-8',
+    },
   });
 }
 
