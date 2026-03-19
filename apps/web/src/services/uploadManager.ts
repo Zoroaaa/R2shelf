@@ -225,11 +225,12 @@ class UploadManager {
     this.jobs.set(taskId, job);
     this.notify();
 
-    // 监听进度变化
     if (onProgress) {
+      let lastProgress = 0;
       const unsubscribe = this.subscribe((jobs) => {
         const currentJob = jobs.get(taskId);
-        if (currentJob && currentJob.progress !== job.progress) {
+        if (currentJob && currentJob.progress !== lastProgress) {
+          lastProgress = currentJob.progress;
           onProgress(currentJob.progress);
           if (currentJob.status === 'completed' || currentJob.status === 'failed') {
             unsubscribe();
@@ -238,7 +239,6 @@ class UploadManager {
       });
     }
 
-    // 如果 Worker 未就绪，加入待处理队列
     if (!this.worker) {
       this.pendingTasks.set(taskId, { file, parentId, bucketId });
       return taskId;
