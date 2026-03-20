@@ -570,8 +570,9 @@ app.post('/part-proxy', async (c) => {
 // 字段: taskId, partNumber, chunk (File)
 app.post('/telegram-part', async (c) => {
   const userId = c.get('userId')!;
-  const contentType = c.req.header('Content-Type') || '';
+  console.log('[TG-PART] step:start userId:', userId);
 
+  const contentType = c.req.header('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } },
@@ -579,10 +580,19 @@ app.post('/telegram-part', async (c) => {
     );
   }
 
-  const formData = await c.req.formData();
+  console.log('[TG-PART] step:parsing-formdata content-length:', c.req.header('content-length'));
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch (e: any) {
+    console.error('[TG-PART] formData() threw:', e?.message, String(e));
+    return c.json({ success: false, error: { code: 'FORMDATA_ERROR', message: `formData解析失败: ${e?.message}` } }, 500);
+  }
+
   const taskId = formData.get('taskId') as string | null;
   const partNumberStr = formData.get('partNumber') as string | null;
   const chunk = formData.get('chunk') as File | null;
+  console.log('[TG-PART] step:formdata-parsed taskId:', taskId, 'partNumber:', partNumberStr, 'chunkSize:', chunk?.size);
 
   if (!taskId || !partNumberStr || !chunk) {
     return c.json(
@@ -602,6 +612,7 @@ app.post('/telegram-part', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  console.log('[TG-PART] step:db-lookup taskId:', taskId);
   const task = await db
     .select()
     .from(uploadTasks)
@@ -611,6 +622,7 @@ app.post('/telegram-part', async (c) => {
   if (!task) {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
   }
+  console.log('[TG-PART] step:task-found uploadId:', task.uploadId);
   if (!task.uploadId?.startsWith('telegram-chunked:')) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 分片上传任务' } },
@@ -623,6 +635,7 @@ app.post('/telegram-part', async (c) => {
 
   const groupId = task.uploadId.slice('telegram-chunked:'.length);
 
+  console.log('[TG-PART] step:bucket-lookup bucketId:', task.bucketId);
   const bucket = await db
     .select()
     .from(storageBuckets)
@@ -633,6 +646,7 @@ app.post('/telegram-part', async (c) => {
     return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '找不到 Telegram 存储桶' } }, 404);
   }
 
+  console.log('[TG-PART] step:decrypt-token');
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
   const tgConfig: TelegramBotConfig = {
     botToken,
@@ -640,18 +654,27 @@ app.post('/telegram-part', async (c) => {
     apiBase: bucket.endpoint || undefined,
   };
 
-  // chunk.arrayBuffer() 与 /part-proxy 完全一致，Workers 上经过验证可靠
-  const chunkBuffer = await chunk.arrayBuffer();
+  console.log('[TG-PART] step:arraybuffer chunkSize:', chunk.size);
+  let chunkBuffer: ArrayBuffer;
+  try {
+    chunkBuffer = await chunk.arrayBuffer();
+  } catch (e: any) {
+    console.error('[TG-PART] arrayBuffer() threw:', e?.message, String(e));
+    return c.json({ success: false, error: { code: 'BUFFER_ERROR', message: `buffer读取失败: ${e?.message}` } }, 500);
+  }
+  console.log('[TG-PART] step:arraybuffer-done byteLength:', chunkBuffer.byteLength);
 
   const chunkFileName = `${task.fileName}.part${String(partNumber).padStart(3, '0')}`;
   const caption = `📦 ${task.fileName} [${partNumber}/${task.totalParts}]\n🗂 OSSshelf chunk | group:${groupId.slice(0, 8)}`;
 
+  console.log('[TG-PART] step:tg-upload apiBase:', tgConfig.apiBase || 'default', 'chatId:', tgConfig.chatId);
   let tgFileId: string;
   try {
     const result = await tgUploadFile(tgConfig, chunkBuffer, chunkFileName, task.mimeType, caption);
     tgFileId = result.fileId;
+    console.log('[TG-PART] step:tg-upload-done tgFileId:', tgFileId);
   } catch (e: any) {
-    console.error('[telegram-part] tgUploadFile error:', e?.message, e);
+    console.error('[TG-PART] tgUploadFile error:', e?.message, String(e));
     return c.json(
       { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传分片失败' } },
       500
