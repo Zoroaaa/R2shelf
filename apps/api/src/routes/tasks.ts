@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
-import { getDb, uploadTasks, users, storageBuckets, files, telegramFileRefs } from '../db';
+import { getDb, uploadTasks, users, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
 import type { DrizzleDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import {
@@ -570,9 +570,8 @@ app.post('/part-proxy', async (c) => {
 // 字段: taskId, partNumber, chunk (File)
 app.post('/telegram-part', async (c) => {
   const userId = c.get('userId')!;
-  console.log('[TG-PART] step:start userId:', userId);
-
   const contentType = c.req.header('Content-Type') || '';
+
   if (!contentType.includes('multipart/form-data')) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } },
@@ -580,19 +579,10 @@ app.post('/telegram-part', async (c) => {
     );
   }
 
-  console.log('[TG-PART] step:parsing-formdata content-length:', c.req.header('content-length'));
-  let formData: FormData;
-  try {
-    formData = await c.req.formData();
-  } catch (e: any) {
-    console.error('[TG-PART] formData() threw:', e?.message, String(e));
-    return c.json({ success: false, error: { code: 'FORMDATA_ERROR', message: `formData解析失败: ${e?.message}` } }, 500);
-  }
-
+  const formData = await c.req.formData();
   const taskId = formData.get('taskId') as string | null;
   const partNumberStr = formData.get('partNumber') as string | null;
   const chunk = formData.get('chunk') as File | null;
-  console.log('[TG-PART] step:formdata-parsed taskId:', taskId, 'partNumber:', partNumberStr, 'chunkSize:', chunk?.size);
 
   if (!taskId || !partNumberStr || !chunk) {
     return c.json(
@@ -612,7 +602,6 @@ app.post('/telegram-part', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  console.log('[TG-PART] step:db-lookup taskId:', taskId);
   const task = await db
     .select()
     .from(uploadTasks)
@@ -622,7 +611,6 @@ app.post('/telegram-part', async (c) => {
   if (!task) {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
   }
-  console.log('[TG-PART] step:task-found uploadId:', task.uploadId);
   if (!task.uploadId?.startsWith('telegram-chunked:')) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 分片上传任务' } },
@@ -635,7 +623,6 @@ app.post('/telegram-part', async (c) => {
 
   const groupId = task.uploadId.slice('telegram-chunked:'.length);
 
-  console.log('[TG-PART] step:bucket-lookup bucketId:', task.bucketId);
   const bucket = await db
     .select()
     .from(storageBuckets)
@@ -646,7 +633,6 @@ app.post('/telegram-part', async (c) => {
     return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '找不到 Telegram 存储桶' } }, 404);
   }
 
-  console.log('[TG-PART] step:decrypt-token');
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
   const tgConfig: TelegramBotConfig = {
     botToken,
@@ -654,27 +640,15 @@ app.post('/telegram-part', async (c) => {
     apiBase: bucket.endpoint || undefined,
   };
 
-  console.log('[TG-PART] step:arraybuffer chunkSize:', chunk.size);
-  let chunkBuffer: ArrayBuffer;
-  try {
-    chunkBuffer = await chunk.arrayBuffer();
-  } catch (e: any) {
-    console.error('[TG-PART] arrayBuffer() threw:', e?.message, String(e));
-    return c.json({ success: false, error: { code: 'BUFFER_ERROR', message: `buffer读取失败: ${e?.message}` } }, 500);
-  }
-  console.log('[TG-PART] step:arraybuffer-done byteLength:', chunkBuffer.byteLength);
-
+  const chunkBuffer = await chunk.arrayBuffer();
   const chunkFileName = `${task.fileName}.part${String(partNumber).padStart(3, '0')}`;
   const caption = `📦 ${task.fileName} [${partNumber}/${task.totalParts}]\n🗂 OSSshelf chunk | group:${groupId.slice(0, 8)}`;
 
-  console.log('[TG-PART] step:tg-upload apiBase:', tgConfig.apiBase || 'default', 'chatId:', tgConfig.chatId);
   let tgFileId: string;
   try {
     const result = await tgUploadFile(tgConfig, chunkBuffer, chunkFileName, task.mimeType, caption);
     tgFileId = result.fileId;
-    console.log('[TG-PART] step:tg-upload-done tgFileId:', tgFileId);
   } catch (e: any) {
-    console.error('[TG-PART] tgUploadFile error:', e?.message, String(e));
     return c.json(
       { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传分片失败' } },
       500
@@ -682,12 +656,23 @@ app.post('/telegram-part', async (c) => {
   }
 
   const now = new Date().toISOString();
-  await (db as any).run(
-    `INSERT OR REPLACE INTO telegram_file_chunks
-       (id, group_id, chunk_index, tg_file_id, chunk_size, bucket_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [crypto.randomUUID(), groupId, partNumber - 1, tgFileId, chunkBuffer.byteLength, task.bucketId, now]
-  );
+
+  // 用 Drizzle insert，避免 (db as any).run() 的 API 兼容问题
+  await db
+    .insert(telegramFileChunks)
+    .values({
+      id: crypto.randomUUID(),
+      groupId,
+      chunkIndex: partNumber - 1,
+      tgFileId,
+      chunkSize: chunkBuffer.byteLength,
+      bucketId: task.bucketId!,
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: telegramFileChunks.id,
+      set: { tgFileId, chunkSize: chunkBuffer.byteLength, createdAt: now },
+    });
 
   const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
   if (!uploadedParts.some((p) => p.partNumber === partNumber)) {

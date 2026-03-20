@@ -322,6 +322,22 @@ export const telegramFileRefs = sqliteTable(
   })
 );
 
+export const telegramFileChunks = sqliteTable(
+  'telegram_file_chunks',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    tgFileId: text('tg_file_id').notNull(),
+    chunkSize: integer('chunk_size').notNull(),
+    bucketId: text('bucket_id').notNull(),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    groupIdx: index('idx_tg_chunks_group').on(table.groupId, table.chunkIndex),
+  })
+);
+
 export type DbType = typeof import('./index').getDb;
 
 export type File = typeof files.$inferSelect;

@@ -2,118 +2,81 @@
  * telegramChunked.ts
  * Telegram 大文件分片存储
  *
- * 背景：
- *   Telegram Bot API 单次上传上限 50MB。
- *   对于超过 50MB 的文件，此模块将文件切成 ≤ 49MB 的块，
- *   逐块上传到 Telegram（每块一个独立消息），并在 D1 中记录分片元数据。
- *   下载时按块顺序拉取并在 Worker 内拼接为 TransformStream 流式输出，
- *   避免一次性加载整个文件到内存。
- *
- * 设计约束：
- *   - 分片在前端循环发起，Worker 每次只处理一片（20MB），无 CPU 超时风险。
- *   - 分片元数据存储在 telegram_file_chunks 表（migration 0006 新增）。
- *   - 原有 telegram_file_refs 仍保留（用于 ≤50MB 文件），两者互不干扰。
- *   - 分片文件在 files 表中有一条正常记录，bucketId 指向 Telegram 桶。
- *   - telegramFileRefs 对分片文件记录 chunkGroupId（虚拟 tgFileId 前缀 "chunked:"）。
- *
- * 分片大小：
- *   TG_CHUNK_SIZE = 10MB（与 S3 UPLOAD_CHUNK_SIZE 一致，Workers formData() 解析已验证可靠）
+ * 新上传路径：前端分片 -> /api/tasks/telegram-part（Worker 接收转发 TG）
+ * 本模块的 tgUploadChunked 仅供 legacy /telegram-upload 路由使用。
+ * getChunks / tgDownloadChunked 供下载路由调用。
  */
 
-import { eq } from 'drizzle-orm';
-import { telegramFileRefs } from '../db/schema';
+import { eq, asc } from 'drizzle-orm';
+import { telegramFileRefs, telegramFileChunks } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
 
-/** 单分片最大字节数（10 MB）
- *  与 S3 UPLOAD_CHUNK_SIZE 保持一致——Workers 上 formData() 解析 10MB multipart
- *  已验证可靠，20MB 会超时导致 500。
- *  峰值内存：10MB × 2（buffer + File） + 运行时 ≈ 30MB，远低于 128MB 上限。
- */
+/** 单分片最大字节数（10 MB），与 S3 UPLOAD_CHUNK_SIZE 一致 */
 export const TG_CHUNK_SIZE = 10 * 1024 * 1024;
 
-/**
- * 大文件是否需要分片（> TG_CHUNK_SIZE）
- */
 export function needsChunking(fileSize: number): boolean {
   return fileSize > TG_CHUNK_SIZE;
 }
 
 export interface TgChunkUploadResult {
-  /** 虚拟 file_id，格式为 "chunked:{groupId}" */
   virtualFileId: string;
-  /** 分片数量 */
   chunkCount: number;
-  /** 实际写入的总字节数 */
   totalBytes: number;
 }
 
 export interface TgUploadProgress {
-  /** 当前已上传分片数 */
   uploadedChunks: number;
-  /** 总分片数 */
   totalChunks: number;
-  /** 进度百分比 (0-100) */
   percent: number;
 }
 
-/** DB 分片记录结构（对应 telegram_file_chunks 表） */
 export interface TgChunkRecord {
   id: string;
-  groupId: string; // 同一文件所有分片共享的 UUID
-  chunkIndex: number; // 0-based
-  tgFileId: string; // Telegram file_id
-  chunkSize: number; // 此块字节数
+  groupId: string;
+  chunkIndex: number;
+  tgFileId: string;
+  chunkSize: number;
   bucketId: string;
   createdAt: string;
 }
 
-// ── Schema（内联 SQL 用于 migration，Drizzle 无类型导出） ──────────────────
-// telegram_file_chunks 表在 migration 0006 中创建，此处用 raw SQL 操作
+// ── DB helpers（全部用 Drizzle ORM，不用 raw SQL）────────────────────────
 
 async function insertChunk(db: DrizzleDb, record: TgChunkRecord): Promise<void> {
-  await (db as any).run(
-    `INSERT INTO telegram_file_chunks
-       (id, group_id, chunk_index, tg_file_id, chunk_size, bucket_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [record.id, record.groupId, record.chunkIndex, record.tgFileId, record.chunkSize, record.bucketId, record.createdAt]
-  );
+  await db
+    .insert(telegramFileChunks)
+    .values({
+      id: record.id,
+      groupId: record.groupId,
+      chunkIndex: record.chunkIndex,
+      tgFileId: record.tgFileId,
+      chunkSize: record.chunkSize,
+      bucketId: record.bucketId,
+      createdAt: record.createdAt,
+    })
+    .onConflictDoUpdate({
+      target: telegramFileChunks.id,
+      set: { tgFileId: record.tgFileId, chunkSize: record.chunkSize },
+    });
 }
 
-async function getChunks(db: DrizzleDb, groupId: string): Promise<TgChunkRecord[]> {
-  const rows = await (db as any).all(
-    `SELECT id, group_id AS groupId, chunk_index AS chunkIndex,
-            tg_file_id AS tgFileId, chunk_size AS chunkSize,
-            bucket_id AS bucketId, created_at AS createdAt
-     FROM telegram_file_chunks
-     WHERE group_id = ?
-     ORDER BY chunk_index ASC`,
-    [groupId]
-  );
-  return rows as TgChunkRecord[];
+export async function getChunks(db: DrizzleDb, groupId: string): Promise<TgChunkRecord[]> {
+  const rows = await db
+    .select()
+    .from(telegramFileChunks)
+    .where(eq(telegramFileChunks.groupId, groupId))
+    .orderBy(asc(telegramFileChunks.chunkIndex))
+    .all();
+  return rows;
 }
 
 async function deleteChunks(db: DrizzleDb, groupId: string): Promise<void> {
-  await (db as any).run(`DELETE FROM telegram_file_chunks WHERE group_id = ?`, [groupId]);
+  await db.delete(telegramFileChunks).where(eq(telegramFileChunks.groupId, groupId));
 }
 
-// ── Upload ─────────────────────────────────────────────────────────────────
+// ── Upload（legacy，供 /telegram-upload 旧路由使用）──────────────────────
 
-/**
- * 将大文件切分并上传到 Telegram。
- * 调用方负责：
- *   1. 验证文件大小（needsChunking() 返回 true）
- *   2. 写入 files 表（使用返回的 virtualFileId 作为 r2Key 辨识）
- *   3. 写入 telegramFileRefs（tgFileId = virtualFileId）
- *
- * @param config  Telegram Bot 配置
- * @param buffer  完整文件内容（ArrayBuffer）
- * @param fileName 原始文件名
- * @param mimeType 文件 MIME 类型
- * @param db      数据库实例
- * @param bucketId 所属存储桶 ID
- * @param onProgress 进度回调（可选）
- */
 export async function tgUploadChunked(
   config: TelegramBotConfig,
   buffer: ArrayBuffer,
@@ -156,24 +119,11 @@ export async function tgUploadChunked(
     onProgress?.({ uploadedChunks, totalChunks: chunkCount, percent });
   }
 
-  return {
-    virtualFileId: `chunked:${groupId}`,
-    chunkCount,
-    totalBytes: totalSize,
-  };
+  return { virtualFileId: `chunked:${groupId}`, chunkCount, totalBytes: totalSize };
 }
 
-// ── Download ───────────────────────────────────────────────────────────────
+// ── Download ──────────────────────────────────────────────────────────────
 
-/**
- * 流式下载分片文件，返回 ReadableStream。
- * 按 chunkIndex 顺序拉取每块内容，TransformStream 拼接后向客户端输出。
- * 避免一次性把整个文件载入内存。
- *
- * @param config      Telegram Bot 配置
- * @param virtualFileId  格式 "chunked:{groupId}"
- * @param db          数据库实例
- */
 export async function tgDownloadChunked(
   config: TelegramBotConfig,
   virtualFileId: string,
@@ -189,11 +139,9 @@ export async function tgDownloadChunked(
     throw new Error(`No chunks found for groupId: ${groupId}`);
   }
 
-  // 用 TransformStream 逐块 pipe，避免全量缓冲
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
-  // 在后台逐块写入（不 await，让调用方在 readable 上读取）
   (async () => {
     try {
       for (const chunk of chunks) {
@@ -210,9 +158,6 @@ export async function tgDownloadChunked(
   return readable;
 }
 
-/**
- * 下载单个分片，返回 Response（复用 tgGetFileInfo + tgGetDownloadUrl）
- */
 async function downloadChunk(config: TelegramBotConfig, tgFileId: string): Promise<Response> {
   const info = await tgGetFileInfo(config, tgFileId);
   const url = tgGetDownloadUrl(config, info.filePath);
@@ -221,21 +166,14 @@ async function downloadChunk(config: TelegramBotConfig, tgFileId: string): Promi
   return resp;
 }
 
-// ── Delete ─────────────────────────────────────────────────────────────────
+// ── Delete ────────────────────────────────────────────────────────────────
 
-/**
- * 删除分片记录（DB 层面）。
- * Telegram 服务器上的分片消息无法被 Bot 强制删除，忽略。
- */
 export async function tgDeleteChunked(db: DrizzleDb, virtualFileId: string): Promise<void> {
   if (!virtualFileId.startsWith('chunked:')) return;
   const groupId = virtualFileId.slice('chunked:'.length);
   await deleteChunks(db, groupId);
 }
 
-/**
- * 判断一个 tgFileId 是否为虚拟分片标识
- */
 export function isChunkedFileId(tgFileId: string): boolean {
   return tgFileId.startsWith('chunked:');
 }
