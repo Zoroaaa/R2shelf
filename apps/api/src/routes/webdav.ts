@@ -150,14 +150,10 @@ function escapeXml(str: string): string {
 }
 
 type FileRow = typeof files.$inferSelect;
+type FolderCache = Map<string, { name: string; parentId: string | null }>;
 
-const folderCache = new Map<string, { name: string; parentId: string | null }>();
-
-function clearPathCache() {
-  folderCache.clear();
-}
-
-async function preloadFolderCache(db: ReturnType<typeof getDb>, userId: string): Promise<void> {
+async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): Promise<FolderCache> {
+  const cache: FolderCache = new Map();
   const allFolders = await db
     .select({ id: files.id, name: files.name, parentId: files.parentId })
     .from(files)
@@ -165,11 +161,12 @@ async function preloadFolderCache(db: ReturnType<typeof getDb>, userId: string):
     .all();
 
   for (const folder of allFolders) {
-    folderCache.set(folder.id, { name: folder.name, parentId: folder.parentId });
+    cache.set(folder.id, { name: folder.name, parentId: folder.parentId });
   }
+  return cache;
 }
 
-function buildLogicalPathFromCache(parentId: string | null, fileName: string): string {
+function buildLogicalPathFromCache(cache: FolderCache, parentId: string | null, fileName: string): string {
   if (!parentId) {
     return `/${fileName}`;
   }
@@ -178,7 +175,7 @@ function buildLogicalPathFromCache(parentId: string | null, fileName: string): s
   let currentId: string | null = parentId;
 
   while (currentId) {
-    const folder = folderCache.get(currentId);
+    const folder = cache.get(currentId);
     if (!folder) break;
     pathParts.unshift(folder.name);
     currentId = folder.parentId;
@@ -187,9 +184,9 @@ function buildLogicalPathFromCache(parentId: string | null, fileName: string): s
   return '/' + pathParts.join('/');
 }
 
-function buildItemsWithLogicalPaths(items: FileRow[]): FileRow[] {
+function buildItemsWithLogicalPaths(cache: FolderCache, items: FileRow[]): FileRow[] {
   return items.map((file) => {
-    const logicalPath = buildLogicalPathFromCache(file.parentId, file.name);
+    const logicalPath = buildLogicalPathFromCache(cache, file.parentId, file.name);
     return {
       ...file,
       path: file.isFolder ? logicalPath + '/' : logicalPath,
@@ -262,8 +259,8 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
 
-  clearPathCache();
-  await preloadFolderCache(db, userId);
+  // 请求级局部缓存，避免模块级共享状态在并发请求间互相污染
+  const cache = await buildFolderCache(db, userId);
 
   const xmlHeaders = {
     'Content-Type': 'application/xml; charset=utf-8',
@@ -271,18 +268,17 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   };
 
   let parentCondition;
+  let resolvedParent: File | undefined;
 
   if (isRoot) {
     parentCondition = isNull(files.parentId);
   } else {
-    const parentFolder = await findFileByPath(db, userId, path);
-    if (parentFolder) {
-      parentCondition = eq(files.parentId, parentFolder.id);
+    resolvedParent = await findFileByPath(db, userId, path);
+    if (resolvedParent) {
+      parentCondition = eq(files.parentId, resolvedParent.id);
     } else {
-      return new Response(buildPropfindXML([], rawPath, false), {
-        status: 207,
-        headers: xmlHeaders,
-      });
+      // 路径不存在：返回 404，让 WebDAV 客户端知道目录不存在
+      return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
     }
   }
 
@@ -292,7 +288,7 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
     .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
     .all();
 
-  const items = buildItemsWithLogicalPaths(rawItems);
+  const items = buildItemsWithLogicalPaths(cache, rawItems);
 
   if (depth === '0') {
     if (isRoot) {
@@ -301,9 +297,8 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
         headers: xmlHeaders,
       });
     } else {
-      const current = await findFileByPath(db, userId, path);
-      if (current) {
-        const currentWithLogicalPath = buildItemsWithLogicalPaths([current]);
+      if (resolvedParent) {
+        const currentWithLogicalPath = buildItemsWithLogicalPaths(cache, [resolvedParent]);
         items.unshift(...currentWithLogicalPath);
       }
       return new Response(buildPropfindXML(items, rawPath, false), {
