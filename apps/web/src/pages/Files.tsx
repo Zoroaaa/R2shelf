@@ -51,7 +51,7 @@ import {
   Trash2 as TrashIcon,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
-import { cn } from '@/utils';
+import { cn, decodeFileName } from '@/utils';
 
 import { NewFolderDialog, ShareDialog, FileListContainer } from '@/components/files';
 import { UploadLinkDialog } from '@/components/files/ShareDialog';
@@ -436,7 +436,7 @@ export default function Files() {
       toast({ title: '已剪切到剪贴板' });
     },
     onDelete: (file: FileItem) => {
-      if (confirm(`将 "${file.name}" 移入回收站？`)) {
+      if (confirm(`将 "${decodeFileName(file.name)}" 移入回收站？`)) {
         deleteMutation.mutate(file.id);
       }
     },
@@ -899,7 +899,7 @@ export default function Files() {
             <div key={key} className="bg-card border rounded-lg px-4 py-3">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm font-medium truncate max-w-[200px]">
-                  {key.split('-').slice(0, -2).join('-')}
+                  {decodeFileName(key.split('-').slice(0, -2).join('-'))}
                 </span>
                 <span className="text-sm text-muted-foreground ml-2">{progress}%</span>
               </div>
@@ -1018,7 +1018,7 @@ export default function Files() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-4 truncate">文件: {tagsFile.name}</p>
+            <p className="text-sm text-muted-foreground mb-4 truncate">文件: {decodeFileName(tagsFile.name)}</p>
             <FileTagsManager fileId={tagsFile.id} />
             <div className="flex justify-end mt-4">
               <Button variant="outline" onClick={() => setTagsFile(null)}>
@@ -1038,7 +1038,7 @@ export default function Files() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-4 truncate">文件: {permissionFile.name}</p>
+            <p className="text-sm text-muted-foreground mb-4 truncate">文件: {decodeFileName(permissionFile.name)}</p>
             <FilePermissionManager fileId={permissionFile.id} isOwner={true} />
             <div className="flex justify-end mt-4">
               <Button variant="outline" onClick={() => setPermissionFile(null)}>
@@ -1061,10 +1061,10 @@ export default function Files() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-4 truncate">文件夹: {folderSettingsFile.name}</p>
+            <p className="text-sm text-muted-foreground mb-4 truncate">文件夹: {decodeFileName(folderSettingsFile.name)}</p>
             <FolderSettings
               folderId={folderSettingsFile.id}
-              folderName={folderSettingsFile.name}
+              folderName={decodeFileName(folderSettingsFile.name)}
               currentAllowedTypes={
                 (folderSettingsFile as any).allowedMimeTypes
                   ? JSON.parse((folderSettingsFile as any).allowedMimeTypes)

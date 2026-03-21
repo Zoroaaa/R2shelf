@@ -12,7 +12,7 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
 import { filesApi } from '@/services/api';
-import { formatBytes } from '@/utils';
+import { formatBytes, decodeFileName } from '@/utils';
 import { getFileCategory, getCategoryBg } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import { CheckSquare, Square } from 'lucide-react';
@@ -82,7 +82,7 @@ export function MasonryItem({
         </button>
       </div>
       <div className="px-2 py-1.5 border-t">
-        <p className="text-xs font-medium truncate">{file.name}</p>
+        <p className="text-xs font-medium truncate">{decodeFileName(file.name)}</p>
         <p className="text-[10px] text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
         {tags && tags.length > 0 && (
           <FileTagsDisplay tags={tags} size="xs" className="mt-0.5" onTagClick={onTagClick} />

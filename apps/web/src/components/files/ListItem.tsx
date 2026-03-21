@@ -12,7 +12,7 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
 import { ActionBtn } from './ActionBtn';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import {
@@ -77,7 +77,7 @@ export function ListItem({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="font-medium truncate text-sm">{file.name}</p>
+          <p className="font-medium truncate text-sm">{decodeFileName(file.name)}</p>
           {tags && tags.length > 0 && <FileTagsDisplay tags={tags} size="xs" onTagClick={onTagClick} />}
         </div>
         <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">

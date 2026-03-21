@@ -13,7 +13,7 @@ import { FileIcon } from '@/components/ui/FileIcon';
 import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
 import { ActionBtn } from './ActionBtn';
 import { filesApi } from '@/services/api';
-import { formatBytes } from '@/utils';
+import { formatBytes, decodeFileName } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import {
@@ -96,7 +96,7 @@ export function GridItem({
         </button>
       </div>
       <div className="px-3 py-2 border-t">
-        <p className="text-xs font-medium truncate">{file.name}</p>
+        <p className="text-xs font-medium truncate">{decodeFileName(file.name)}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           <p className="text-xs text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
           {(file as any).bucket && (
