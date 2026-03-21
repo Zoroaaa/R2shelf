@@ -12,7 +12,9 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull, like, gte, lte, inArray, desc, asc, sql, SQL } from 'drizzle-orm';
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
+import type { DrizzleDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -59,7 +61,7 @@ const advancedSearchSchema = z.object({
 });
 
 async function getAllDescendantFolderIds(
-  db: ReturnType<typeof getDb>,
+  db: DrizzleDb,
   parentFolderId: string
 ): Promise<Set<string>> {
   const folderIds = new Set<string>([parentFolderId]);
@@ -173,12 +175,7 @@ app.get('/', async (c) => {
     conditions.push(lte(files.updatedAt, searchParams.updatedBefore));
   }
 
-  let results = await db
-    .select()
-    .from(files)
-    .where(and(...conditions))
-    .all();
-
+  // tags 过滤前置：先获取符合 tag 条件的 fileId 集合，加入 SQL conditions
   if (searchParams.tags && searchParams.tags.length > 0) {
     const fileIdsWithTag = await db
       .select({ fileId: fileTags.fileId })
@@ -186,37 +183,49 @@ app.get('/', async (c) => {
       .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, searchParams.tags)))
       .all();
 
-    const fileIdSet = new Set(fileIdsWithTag.map((t) => t.fileId));
-    results = results.filter((f) => fileIdSet.has(f.id));
+    const taggedIds = fileIdsWithTag.map((t) => t.fileId);
+    if (taggedIds.length === 0) {
+      return c.json({ success: true, data: { items: [], total: 0, page: searchParams.page || 1, limit: searchParams.limit || 50, totalPages: 0, aggregations: { types: {}, mimeTypes: {}, sizeRange: { min: 0, max: 0 } } } });
+    }
+    conditions.push(inArray(files.id, taggedIds));
   }
 
   const sortBy = searchParams.sortBy || 'createdAt';
   const sortOrder = searchParams.sortOrder || 'desc';
-  results.sort((a, b) => {
-    let aVal: string | number = a[sortBy] ?? '';
-    let bVal: string | number = b[sortBy] ?? '';
-    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-    if (sortOrder === 'asc') {
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    }
-    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-  });
+  const sortColMap: Record<string, SQLiteColumn> = {
+    name: files.name,
+    size: files.size,
+    createdAt: files.createdAt,
+    updatedAt: files.updatedAt,
+  };
+  const sortCol = sortColMap[sortBy] ?? files.createdAt;
+  const orderExpr = sortOrder === 'asc' ? asc(sortCol) : desc(sortCol);
 
-  const total = results.length;
   const page = searchParams.page || 1;
   const limit = searchParams.limit || 50;
   const offset = (page - 1) * limit;
-  const paginatedResults = results.slice(offset, offset + limit);
+
+  // total count + 分页结果并发查询，排序分页下推到 SQL
+  const [paginatedResults, countRow] = await Promise.all([
+    db.select().from(files).where(and(...conditions)).orderBy(orderExpr).limit(limit).offset(offset).all(),
+    db.select({ count: sql<number>`count(*)` }).from(files).where(and(...conditions)).get(),
+  ]);
+
+  const total = countRow?.count ?? 0;
 
   clearFilePathCache();
 
+  // bucketMap 批量查询（一次 inArray 替代 N 次 .get()）
   const bucketIds = [...new Set(paginatedResults.map((f) => f.bucketId).filter(Boolean))] as string[];
+  const bucketRows = bucketIds.length > 0
+    ? await db
+        .select({ id: storageBuckets.id, name: storageBuckets.name, provider: storageBuckets.provider })
+        .from(storageBuckets)
+        .where(inArray(storageBuckets.id, bucketIds))
+        .all()
+    : [];
   const bucketMap: Record<string, { id: string; name: string; provider: string }> = {};
-  for (const bid of bucketIds) {
-    const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bid)).get();
-    if (b) bucketMap[b.id] = { id: b.id, name: b.name, provider: b.provider };
-  }
+  for (const b of bucketRows) bucketMap[b.id] = b;
 
   const fileIds = paginatedResults.map((f) => f.id);
   const allTags =
@@ -234,6 +243,7 @@ app.get('/', async (c) => {
     tagsByFile[tag.fileId].push(tag);
   }
 
+  // buildFolderPath 并发执行
   const itemsWithMeta = await Promise.all(
     paginatedResults.map(async (f) => {
       const folderPath = await buildFolderPath(db, userId, f.parentId);
@@ -252,7 +262,7 @@ app.get('/', async (c) => {
     sizeRange: { min: 0, max: 0 },
   };
 
-  for (const f of results) {
+  for (const f of paginatedResults) {
     if (!f.isFolder) {
       const type = f.mimeType?.split('/')[0] || 'other';
       aggregations.types[type] = (aggregations.types[type] || 0) + 1;
@@ -260,7 +270,7 @@ app.get('/', async (c) => {
     }
   }
 
-  const sizes = results.filter((f) => !f.isFolder).map((f) => f.size);
+  const sizes = paginatedResults.filter((f) => !f.isFolder).map((f) => f.size);
   aggregations.sizeRange = {
     min: sizes.length > 0 ? Math.min(...sizes) : 0,
     max: sizes.length > 0 ? Math.max(...sizes) : 0,

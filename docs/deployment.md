@@ -239,6 +239,18 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | Secret 名称 | 默认值 | 说明 |
 |-------------|--------|------|
 | `TRASH_RETENTION_DAYS` | 30 | 回收站文件保留天数 |
+| `ALERT_TG_BOT_TOKEN` | - | 告警 Telegram Bot Token，用于接收系统告警通知 |
+| `ALERT_TG_CHAT_ID` | - | 告警 Telegram Chat ID，指定告警消息发送目标 |
+
+#### 配置 Telegram 告警（可选）
+
+如需接收系统告警通知（如定时任务执行失败、存储异常等），可配置 Telegram Bot：
+
+1. **创建 Bot**：在 Telegram 中搜索 [@BotFather](https://t.me/BotFather)，发送 `/newbot` 创建 Bot，记录返回的 Token
+2. **获取 Chat ID**：
+   - **个人消息**：直接使用你的 User ID（转发任意消息到 [@userinfobot](https://t.me/userinfobot) 获取），需要先向 Bot 发送 `/start`
+   - **频道/群组**：创建频道或群组，将 Bot 添加为管理员，转发消息到 [@userinfobot](https://t.me/userinfobot) 获取 Chat ID（以 `-100` 开头）
+3. **配置 Secrets**：将 Token 和 Chat ID 添加到 GitHub Secrets
 
 ### 配置示例
 
@@ -912,6 +924,8 @@ pnpm typecheck        # 类型检查
   - [ ] `CLOUDFLARE_D1_DATABASE_ID`
   - [ ] `CLOUDFLARE_KV_NAMESPACE_ID`
   - [ ] `JWT_SECRET`
+  - [ ] `ALERT_TG_BOT_TOKEN`（可选）
+  - [ ] `ALERT_TG_CHAT_ID`（可选）
 - [ ] 运行数据库迁移
 - [ ] 设置 ENCRYPTION_KEY Secret
 - [ ] 连接 Cloudflare Pages

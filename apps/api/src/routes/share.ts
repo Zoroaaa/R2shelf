@@ -17,7 +17,7 @@ import { s3Get, s3Put } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, SHARE_DEFAULT_EXPIRY, MAX_FILE_SIZE, inferMimeType } from '@osshelf/shared';
-import { getEncryptionKey } from '../lib/crypto';
+import { getEncryptionKey, hashPassword, verifyPassword } from '../lib/crypto';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } from '../lib/telegramChunked';
@@ -68,10 +68,16 @@ async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: strin
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
     return { error: { code: ERROR_CODES.SHARE_EXPIRED, message: '分享链接已过期' }, status: 410 as const };
   }
-  if (share.password && share.password !== password) {
-    const code = password !== undefined ? ERROR_CODES.SHARE_PASSWORD_INVALID : ERROR_CODES.SHARE_PASSWORD_REQUIRED;
-    const message = password !== undefined ? '密码错误' : '需要密码访问';
-    return { error: { code, message }, status: 401 as const };
+  if (share.password) {
+    if (password === undefined) {
+      return { error: { code: ERROR_CODES.SHARE_PASSWORD_REQUIRED, message: '需要密码访问' }, status: 401 as const };
+    }
+    const valid = share.password.startsWith('pbkdf2:')
+      ? await verifyPassword(password, share.password)
+      : share.password === password; // 兼容旧明文记录
+    if (!valid) {
+      return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
+    }
   }
   return { share };
 }
@@ -90,10 +96,16 @@ async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: str
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
     return { error: { code: ERROR_CODES.SHARE_EXPIRED, message: '上传链接已过期' }, status: 410 as const };
   }
-  if (share.password && share.password !== password) {
-    const code = password !== undefined ? ERROR_CODES.SHARE_PASSWORD_INVALID : ERROR_CODES.SHARE_PASSWORD_REQUIRED;
-    const message = password !== undefined ? '密码错误' : '需要密码访问';
-    return { error: { code, message }, status: 401 as const };
+  if (share.password) {
+    if (password === undefined) {
+      return { error: { code: ERROR_CODES.SHARE_PASSWORD_REQUIRED, message: '需要密码访问' }, status: 401 as const };
+    }
+    const valid = share.password.startsWith('pbkdf2:')
+      ? await verifyPassword(password, share.password)
+      : share.password === password; // 兼容旧明文记录
+    if (!valid) {
+      return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
+    }
   }
   return { share };
 }
@@ -212,12 +224,13 @@ app.post('/', authMiddleware, async (c) => {
   const shareId = crypto.randomUUID();
   const now = new Date().toISOString();
   const expires = expiresAt || new Date(Date.now() + SHARE_DEFAULT_EXPIRY).toISOString();
+  const hashedPassword = password ? await hashPassword(password) : null;
 
   await db.insert(shares).values({
     id: shareId,
     fileId,
     userId,
-    password: password || null,
+    password: hashedPassword,
     expiresAt: expires,
     downloadLimit: downloadLimit || null,
     downloadCount: 0,
@@ -321,12 +334,13 @@ app.post('/upload-link', authMiddleware, async (c) => {
   const uploadToken = crypto.randomUUID();
   const now = new Date().toISOString();
   const expires = expiresAt || new Date(Date.now() + SHARE_DEFAULT_EXPIRY).toISOString();
+  const hashedPassword = password ? await hashPassword(password) : null;
 
   await db.insert(shares).values({
     id: shareId,
     fileId: folderId,
     userId,
-    password: password || null,
+    password: hashedPassword,
     expiresAt: expires,
     downloadLimit: null,
     downloadCount: 0,

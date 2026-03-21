@@ -7,6 +7,7 @@
  * - 过期会话/设备清理
  * - 过期分享清理
  * - 过期上传任务清理
+ * - cron 执行结果 Telegram 告警
  */
 
 import { eq, and, isNotNull, lt } from 'drizzle-orm';
@@ -35,9 +36,30 @@ interface CleanupResult {
   };
 }
 
+/**
+ * 向 Telegram 发送 cron 执行告警。
+ * 需要在环境变量中配置 ALERT_TG_BOT_TOKEN 和 ALERT_TG_CHAT_ID。
+ * 任意一项缺失则静默跳过（不影响主流程）。
+ */
+async function sendCronAlert(env: Env, message: string): Promise<void> {
+  const botToken = (env as any).ALERT_TG_BOT_TOKEN as string | undefined;
+  const chatId = (env as any).ALERT_TG_CHAT_ID as string | undefined;
+  if (!botToken || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+    });
+  } catch (e) {
+    console.error('[CronAlert] Failed to send Telegram notification:', e);
+  }
+}
+
 export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
   const db = getDb(env.DB);
   const encKey = getEncryptionKey(env);
+  const startedAt = new Date().toISOString();
 
   const result: CleanupResult = {
     trash: { deletedCount: 0, freedBytes: 0 },
@@ -46,28 +68,58 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     audit: { cleaned: 0 },
   };
 
+  const failures: string[] = [];
+
   try {
     result.trash = await runTrashCleanup(db, env, encKey);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error('Trash cleanup failed:', error);
+    failures.push(`回收站清理: ${msg}`);
   }
 
   try {
     result.sessions = await runSessionCleanup(db, encKey);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error('Session cleanup failed:', error);
+    failures.push(`会话清理: ${msg}`);
   }
 
   try {
     result.shares = await runShareCleanup(db);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error('Share cleanup failed:', error);
+    failures.push(`分享清理: ${msg}`);
   }
 
   try {
     result.audit = await runAuditLogCleanup(db, env);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error('Audit log cleanup failed:', error);
+    failures.push(`审计日志清理: ${msg}`);
+  }
+
+  // 发送 Telegram 告警
+  if (failures.length > 0) {
+    const alertMsg =
+      `⚠️ <b>OSSshelf Cron 告警</b>\n` +
+      `时间：${startedAt}\n` +
+      `失败任务（${failures.length}/${4}）：\n` +
+      failures.map((f) => `• ${f}`).join('\n');
+    await sendCronAlert(env, alertMsg);
+  } else {
+    const mb = (result.trash.freedBytes / 1024 / 1024).toFixed(2);
+    const summaryMsg =
+      `✅ <b>OSSshelf Cron 完成</b>\n` +
+      `时间：${startedAt}\n` +
+      `• 回收站：删除 ${result.trash.deletedCount} 文件，释放 ${mb} MB\n` +
+      `• 会话：清理 ${result.sessions.uploadTasksExpired} 上传任务，${result.sessions.devicesCleaned} 设备\n` +
+      `• 分享：清理 ${result.shares.sharesCleaned} 条\n` +
+      `• 审计日志：清理 ${result.audit.cleaned} 条`;
+    await sendCronAlert(env, summaryMsg);
   }
 
   return result;
