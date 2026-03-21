@@ -16,7 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, bucketsApi, permissionsApi, shareApi, type StorageBucket } from '@/services/api';
+import { filesApi, bucketsApi, permissionsApi, shareApi, searchApi, type StorageBucket } from '@/services/api';
 import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
@@ -47,6 +47,8 @@ import {
   X,
   SlidersHorizontal,
   Search,
+  History,
+  Trash2 as TrashIcon,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
@@ -121,6 +123,14 @@ export default function Files() {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [shareFileItem, setShareFileItem] = useState<{ id: string; isFolder: boolean } | null>(null);
+
+  // ── Phase 7: 搜索历史 ────────────────────────────────────────────────────
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const { data: searchHistoryData, refetch: refetchHistory } = useQuery({
+    queryKey: ['search-history'],
+    queryFn: () => searchApi.history().then(r => r.data.data ?? []),
+    enabled: false, // 手动触发
+  });
 
   const fileSearch = useFileSearch({ folderId });
   const {
@@ -543,8 +553,15 @@ export default function Files() {
               placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
               value={searchInput}
               onChange={(e) => handleSearchInput(e.target.value)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-              onFocus={() => searchInput.length >= 2 && searchSuggestions.length > 0 && setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => { setShowSuggestions(false); setShowSearchHistory(false); }, 200)}
+              onFocus={() => {
+                if (searchInput.length >= 2 && searchSuggestions.length > 0) {
+                  setShowSuggestions(true);
+                } else if (searchInput.length === 0) {
+                  refetchHistory();
+                  setShowSearchHistory(true);
+                }
+              }}
             />
             {(searchInput || tagSearchQuery) && (
               <button
@@ -554,6 +571,7 @@ export default function Files() {
                   setSearchQuery('');
                   setTagSearchQuery(null);
                   setShowSuggestions(false);
+                  setShowSearchHistory(false);
                 }}
               >
                 <X className="h-3.5 w-3.5" />
@@ -569,6 +587,7 @@ export default function Files() {
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
             </button>
+            {/* 自动补全建议 */}
             {showSuggestions && searchSuggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-48 overflow-auto">
                 {searchSuggestions.map((suggestion, idx) => (
@@ -579,6 +598,50 @@ export default function Files() {
                   >
                     {suggestion}
                   </button>
+                ))}
+              </div>
+            )}
+            {/* 搜索历史下拉（仅输入框为空时显示） */}
+            {showSearchHistory && !showSuggestions && searchInput.length === 0 && (searchHistoryData?.length ?? 0) > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-56 overflow-auto">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b">
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <History className="h-3 w-3" />
+                    搜索历史
+                  </span>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                    onMouseDown={async () => {
+                      await searchApi.clearHistory();
+                      refetchHistory();
+                      setShowSearchHistory(false);
+                    }}
+                  >
+                    清空
+                  </button>
+                </div>
+                {searchHistoryData?.map((item) => (
+                  <div key={item.id} className="flex items-center group hover:bg-muted/50 transition-colors">
+                    <button
+                      className="flex-1 px-3 py-2 text-left text-sm"
+                      onMouseDown={() => {
+                        handleSuggestionClick(item.query);
+                        setShowSearchHistory(false);
+                      }}
+                    >
+                      {item.query}
+                    </button>
+                    <button
+                      className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                      onMouseDown={async (e) => {
+                        e.stopPropagation();
+                        await searchApi.deleteHistory(item.id);
+                        refetchHistory();
+                      }}
+                    >
+                      <TrashIcon className="h-3 w-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

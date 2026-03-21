@@ -340,4 +340,19 @@ export const telegramFileChunks = sqliteTable(
 
 export type DbType = typeof import('./index').getDb;
 
+export const searchHistory = sqliteTable(
+  'search_history',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    query: text('query').notNull(),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userCreatedIdx: index('idx_search_history_user').on(table.userId, table.createdAt),
+  })
+);
+
 export type File = typeof files.$inferSelect;

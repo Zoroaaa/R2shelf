@@ -214,6 +214,20 @@ export default function Tasks() {
       }),
   });
 
+  const retryMutation = useMutation({
+    mutationFn: (taskId: string) => tasksApi.retry(taskId),
+    onSuccess: () => {
+      toast({ title: '任务已重置，请重新选择文件上传' });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '重试失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
+  });
+
   const handleResumeUpload = async (task: UploadTask) => {
     setResumingTaskId(task.id);
     fileInputRef.current?.click();
@@ -390,7 +404,12 @@ export default function Tasks() {
                       {expandedGroups.has(group.label) && (
                         <div className="space-y-3">
                           {group.tasks.map((task) => (
-                            <TaskItem key={task.id} task={task} onDelete={() => deleteMutation.mutate(task.id)} />
+                            <TaskItem
+                              key={task.id}
+                              task={task}
+                              onDelete={() => deleteMutation.mutate(task.id)}
+                              onRetry={task.status === 'failed' ? () => retryMutation.mutate(task.id) : undefined}
+                            />
                           ))}
                         </div>
                       )}
@@ -421,6 +440,7 @@ function TaskItem({
   onPause,
   onResume,
   onResumeUpload,
+  onRetry,
 }: {
   task: UploadTask;
   onAbort?: () => void;
@@ -428,6 +448,7 @@ function TaskItem({
   onPause?: () => void;
   onResume?: () => void;
   onResumeUpload?: () => void;
+  onRetry?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
   const progress = task.progress ?? 0;
@@ -521,6 +542,12 @@ function TaskItem({
           <Button variant="outline" size="sm" onClick={onAbort}>
             <XCircle className="h-3.5 w-3.5 mr-1" />
             取消
+          </Button>
+        )}
+        {task.status === 'failed' && onRetry && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RotateCcw className="h-3.5 w-3.5 mr-1" />
+            重试
           </Button>
         )}
         <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={onDelete}>

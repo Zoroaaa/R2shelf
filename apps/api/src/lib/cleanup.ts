@@ -10,7 +10,7 @@
  */
 
 import { eq, and, isNotNull, lt } from 'drizzle-orm';
-import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts, userDevices } from '../db';
+import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts, userDevices, auditLogs } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete, s3AbortMultipartUpload } from './s3client';
@@ -26,11 +26,13 @@ interface CleanupResult {
     webdavSessionsCleaned: number;
     uploadTasksExpired: number;
     loginAttemptsCleaned: number;
-    // 修复：新增设备清理计数
     devicesCleaned: number;
   };
   shares: {
     sharesCleaned: number;
+  };
+  audit: {
+    cleaned: number;
   };
 }
 
@@ -42,6 +44,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     trash: { deletedCount: 0, freedBytes: 0 },
     sessions: { webdavSessionsCleaned: 0, uploadTasksExpired: 0, loginAttemptsCleaned: 0, devicesCleaned: 0 },
     shares: { sharesCleaned: 0 },
+    audit: { cleaned: 0 },
   };
 
   try {
@@ -60,6 +63,12 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     result.shares = await runShareCleanup(db);
   } catch (error) {
     console.error('Share cleanup failed:', error);
+  }
+
+  try {
+    result.audit = await runAuditLogCleanup(db, env);
+  } catch (error) {
+    console.error('Audit log cleanup failed:', error);
   }
 
   return result;
@@ -204,4 +213,21 @@ async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCl
   console.log(`Share cleanup: ${expiredShares.length} expired shares removed`);
 
   return { sharesCleaned: expiredShares.length };
+}
+
+async function runAuditLogCleanup(
+  db: ReturnType<typeof getDb>,
+  env: Env
+): Promise<{ cleaned: number }> {
+  // 默认保留 90 天，通过 AUDIT_RETENTION_DAYS env var 配置
+  const retentionDays = parseInt((env as any).AUDIT_RETENTION_DAYS || '90', 10);
+  const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+
+  const deleted = await db
+    .delete(auditLogs)
+    .where(lt(auditLogs.createdAt, threshold))
+    .returning({ id: auditLogs.id });
+
+  console.log(`Audit log cleanup: ${deleted.length} records older than ${retentionDays} days removed`);
+  return { cleaned: deleted.length };
 }

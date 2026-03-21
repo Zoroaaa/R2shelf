@@ -12,7 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, isNotNull, desc, sql } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc, sql, gte, lte } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -305,12 +305,18 @@ app.get('/audit-logs', async (c) => {
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20')));
   const userId = c.req.query('userId');
   const action = c.req.query('action');
+  const startDate = c.req.query('startDate');
+  const endDate = c.req.query('endDate');
+  const resourceType = c.req.query('resourceType');
 
   const db = getDb(c.env.DB);
 
   const conditions: any[] = [];
   if (userId) conditions.push(eq(auditLogs.userId, userId));
   if (action) conditions.push(eq(auditLogs.action, action));
+  if (resourceType) conditions.push(eq(auditLogs.resourceType, resourceType));
+  if (startDate) conditions.push(gte(auditLogs.createdAt, startDate));
+  if (endDate) conditions.push(lte(auditLogs.createdAt, endDate));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

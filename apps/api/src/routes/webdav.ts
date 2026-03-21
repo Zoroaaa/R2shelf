@@ -266,29 +266,52 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
 }
 
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
+  // 策略1：直接精确匹配（WebDAV 上传写入的绝对路径格式 /a/b/file）
+  const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
+
   let file = await db
     .select()
     .from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, path), isNull(files.deletedAt)))
+    .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
     .get();
 
   if (!file) {
     file = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path + '/'), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
       .get();
   }
 
-  if (!file && path.endsWith('/')) {
-    file = await db
+  if (file) return file;
+
+  // 策略2：按名称层级递归定位（兼容普通上传写入的 parentId/name 格式 path）
+  // 例：WebDAV 请求路径 /我的文件夹/子文件夹 → 逐级按 name + parentId 查找
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 0) return undefined;
+
+  let currentParentId: string | null = null;
+  let currentFile: File | undefined;
+
+  for (const part of parts) {
+    currentFile = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.userId, userId),
+          eq(files.name, part),
+          currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
+          isNull(files.deletedAt)
+        )
+      )
       .get();
+
+    if (!currentFile) return undefined;
+    currentParentId = currentFile.id;
   }
 
-  return file;
+  return currentFile;
 }
 
 async function handleGet(c: AppContext, userId: string, path: string, headOnly: boolean) {

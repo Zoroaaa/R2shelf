@@ -10,8 +10,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, like, gte, lte, inArray, or, desc, SQL } from 'drizzle-orm';
-import { getDb, files, fileTags, storageBuckets } from '../db';
+import { eq, and, isNull, like, gte, lte, inArray, desc, asc, sql, SQL } from 'drizzle-orm';
+import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -259,6 +259,24 @@ app.get('/', async (c) => {
     max: sizes.length > 0 ? Math.max(...sizes) : 0,
   };
 
+  // 有关键词时异步写入搜索历史（去重：同词在最近20条内不重复写）
+  if (searchParams.query) {
+    const q = searchParams.query.trim();
+    db.select().from(searchHistory)
+      .where(and(eq(searchHistory.userId, userId), eq(searchHistory.query, q)))
+      .get()
+      .then((existing) => {
+        if (!existing) {
+          db.insert(searchHistory).values({
+            id: crypto.randomUUID(),
+            userId,
+            query: q,
+            createdAt: new Date().toISOString(),
+          }).run().catch(() => {});
+        }
+      }).catch(() => {});
+  }
+
   return c.json({
     success: true,
     data: {
@@ -286,110 +304,90 @@ app.post('/advanced', async (c) => {
 
   const { conditions: searchConditions, logic, sortBy, sortOrder, page, limit } = result.data;
   const db = getDb(c.env.DB);
+  const pageNum = page || 1;
+  const limitNum = limit || 50;
 
-  const allFiles = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-    .all();
-
-  const evaluateCondition = (file: typeof files.$inferSelect, condition: (typeof searchConditions)[0]): boolean => {
-    const { field, operator, value } = condition;
-    let fieldValue: unknown;
-
-    if (field === 'tags') {
-      return true;
-    }
-
-    fieldValue = file[field as keyof typeof file];
-
-    switch (operator) {
-      case 'contains':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().includes(value.toLowerCase())
-        );
-      case 'equals':
-        return fieldValue === value;
-      case 'startsWith':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().startsWith(value.toLowerCase())
-        );
-      case 'endsWith':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().endsWith(value.toLowerCase())
-        );
-      case 'gt':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue > value;
-      case 'gte':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue >= value;
-      case 'lt':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue < value;
-      case 'lte':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue <= value;
-      case 'in':
-        return Array.isArray(value) && value.includes(fieldValue as string);
-      default:
-        return false;
-    }
-  };
-
-  let filteredFiles = allFiles;
-
+  // ── 分离 tag 条件（需要 JOIN，单独处理）和字段条件（可下推 SQL）──────────
   const tagConditions = searchConditions.filter((c) => c.field === 'tags');
-  const otherConditions = searchConditions.filter((c) => c.field !== 'tags');
+  const fieldConditions = searchConditions.filter((c) => c.field !== 'tags');
 
-  if (otherConditions.length > 0) {
-    filteredFiles = filteredFiles.filter((file) => {
-      const results = otherConditions.map((cond) => evaluateCondition(file, cond));
-      return logic === 'and' ? results.every(Boolean) : results.some(Boolean);
-    });
+  // ── 字段条件 → SQL WHERE 子句 ────────────────────────────────────────────
+  const baseConditions: SQL[] = [eq(files.userId, userId), isNull(files.deletedAt)];
+
+  function buildFieldSQL(cond: typeof fieldConditions[0]): SQL | null {
+    const { field, operator, value } = cond;
+    const col = files[field as keyof typeof files.$inferSelect] as any;
+    if (!col) return null;
+    switch (operator) {
+      case 'contains':   return like(col, `%${value}%`);
+      case 'equals':     return sql`${col} = ${value}`;
+      case 'startsWith': return like(col, `${value}%`);
+      case 'endsWith':   return like(col, `%${value}`);
+      case 'gt':         return sql`${col} > ${value}`;
+      case 'gte':        return sql`${col} >= ${value}`;
+      case 'lt':         return sql`${col} < ${value}`;
+      case 'lte':        return sql`${col} <= ${value}`;
+      case 'in':         return Array.isArray(value) && value.length > 0 ? inArray(col, value) : null;
+      default:           return null;
+    }
   }
 
+  const fieldSQLs = fieldConditions.map(buildFieldSQL).filter((s): s is SQL => s !== null);
+
+  if (fieldSQLs.length > 0) {
+    if (logic === 'or') {
+      baseConditions.push(sql`(${sql.join(fieldSQLs, sql` OR `)})`);
+    } else {
+      baseConditions.push(...fieldSQLs);
+    }
+  }
+
+  // ── tag 条件：先查 fileTags 得到 fileId 集合 ─────────────────────────────
+  let tagFileIdSet: Set<string> | null = null;
   if (tagConditions.length > 0) {
-    for (const tagCond of tagConditions) {
-      const tagNames = Array.isArray(tagCond.value) ? tagCond.value : [tagCond.value as string];
-      const filesWithTags = await db
-        .select({ fileId: fileTags.fileId })
-        .from(fileTags)
-        .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
-        .all();
-
-      const fileIdSet = new Set(filesWithTags.map((t) => t.fileId));
-      filteredFiles = filteredFiles.filter((f) => fileIdSet.has(f.id));
+    const allTagNames = tagConditions.flatMap((c) =>
+      Array.isArray(c.value) ? c.value : [c.value as string]
+    );
+    const tagRows = await db
+      .select({ fileId: fileTags.fileId })
+      .from(fileTags)
+      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, allTagNames)))
+      .all();
+    tagFileIdSet = new Set(tagRows.map((r) => r.fileId));
+    if (tagFileIdSet.size > 0) {
+      baseConditions.push(inArray(files.id, Array.from(tagFileIdSet)));
+    } else {
+      // tag 无匹配 → 直接返回空
+      return c.json({ success: true, data: { items: [], total: 0, page: pageNum, limit: limitNum, totalPages: 0 } });
     }
   }
 
-  const sortField = sortBy || 'createdAt';
-  const order = sortOrder || 'desc';
-  filteredFiles.sort((a, b) => {
-    let aVal: string | number = a[sortField] ?? '';
-    let bVal: string | number = b[sortField] ?? '';
-    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-    if (order === 'asc') {
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    }
-    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-  });
+  // ── 排序 ─────────────────────────────────────────────────────────────────
+  const sortCol = {
+    name: files.name,
+    size: files.size,
+    createdAt: files.createdAt,
+    updatedAt: files.updatedAt,
+  }[sortBy || 'createdAt'] ?? files.createdAt;
+  const orderExpr = (sortOrder || 'desc') === 'asc' ? asc(sortCol) : desc(sortCol);
 
-  const total = filteredFiles.length;
-  const offset = ((page || 1) - 1) * (limit || 50);
-  const paginatedResults = filteredFiles.slice(offset, offset + (limit || 50));
+  // ── 分页查询 ──────────────────────────────────────────────────────────────
+  const [items, countRow] = await Promise.all([
+    db.select().from(files).where(and(...baseConditions)).orderBy(orderExpr)
+      .limit(limitNum).offset((pageNum - 1) * limitNum).all(),
+    db.select({ count: sql<number>`count(*)` }).from(files).where(and(...baseConditions)).get(),
+  ]);
+
+  const total = countRow?.count ?? 0;
 
   return c.json({
     success: true,
     data: {
-      items: paginatedResults,
+      items,
       total,
-      page: page || 1,
-      limit: limit || 50,
-      totalPages: Math.ceil(total / (limit || 50)),
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
     },
   });
 });
@@ -452,6 +450,37 @@ app.get('/recent', async (c) => {
     .all();
 
   return c.json({ success: true, data: recentFiles });
+});
+
+// ── 搜索历史 ──────────────────────────────────────────────────────────────
+
+app.get('/history', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  const rows = await db
+    .select()
+    .from(searchHistory)
+    .where(eq(searchHistory.userId, userId))
+    .orderBy(desc(searchHistory.createdAt))
+    .limit(20)
+    .all();
+  return c.json({ success: true, data: rows });
+});
+
+app.delete('/history/:id', async (c) => {
+  const userId = c.get('userId')!;
+  const id = c.req.param('id');
+  const db = getDb(c.env.DB);
+  await db.delete(searchHistory)
+    .where(and(eq(searchHistory.id, id), eq(searchHistory.userId, userId)));
+  return c.json({ success: true });
+});
+
+app.delete('/history', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
+  return c.json({ success: true });
 });
 
 export default app;
