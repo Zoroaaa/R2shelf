@@ -29,6 +29,7 @@ import {
   FolderPlus,
   Clipboard,
   Link2,
+  FilePlus,
 } from 'lucide-react';
 
 export function useFileContextMenu() {
@@ -146,6 +147,12 @@ export function useFileContextMenu() {
         icon: <Upload className="h-4 w-4" />,
         shortcut: 'Ctrl+U',
         action: () => callbacks.onUpload(),
+      },
+      {
+        id: 'newFile',
+        label: '新建文件',
+        icon: <FilePlus className="h-4 w-4" />,
+        action: () => callbacks.onNewFile?.(),
       },
       {
         id: 'newFolder',

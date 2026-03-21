@@ -35,6 +35,14 @@ interface BatchMoveParams {
   targetParentId: string | null;
 }
 
+interface CreateFileParams {
+  name: string;
+  content?: string;
+  parentId?: string | null;
+  bucketId?: string | null;
+  mimeType?: string;
+}
+
 export function useFileMutations() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -49,6 +57,16 @@ export function useFileMutations() {
       toast({ title: '创建成功' });
     },
     onError: (e) => toast({ title: '创建失败', description: getErrorMessage(e), variant: 'destructive' }),
+  });
+
+  const createFileMutation = useMutation({
+    mutationFn: (params: CreateFileParams) => filesApi.createFile(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      toast({ title: '文件创建成功' });
+    },
+    onError: (e) => toast({ title: '文件创建失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -140,6 +158,7 @@ export function useFileMutations() {
 
   return {
     createFolderMutation,
+    createFileMutation,
     deleteMutation,
     renameMutation,
     moveMutation,

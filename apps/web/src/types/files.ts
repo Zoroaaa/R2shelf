@@ -69,6 +69,7 @@ export interface BackgroundContextMenuCallbacks {
   onSelectAll: () => void;
   onUpload: () => void;
   onNewFolder: () => void;
+  onNewFile?: () => void;
   onPaste: () => void;
   hasClipboard: boolean;
   clipboardCount: number;

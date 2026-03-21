@@ -79,7 +79,6 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
       }
     };
 
-    let scrollTimeout: ReturnType<typeof setTimeout>;
     let isScrollListenerReady = false;
 
     const handleScroll = () => {
@@ -91,7 +90,7 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
     document.addEventListener('keydown', handleEscape);
     window.addEventListener('scroll', handleScroll, true);
 
-    scrollTimeout = setTimeout(() => {
+    const scrollTimeout = setTimeout(() => {
       isScrollListenerReady = true;
     }, 100);
 

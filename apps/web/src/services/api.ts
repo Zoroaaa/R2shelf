@@ -107,6 +107,13 @@ export const filesApi = {
   get: (id: string) => api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
   createFolder: (name: string, parentId?: string | null, bucketId?: string | null) =>
     api.post<ApiResponse<FileItem>>('/api/files', { name, parentId, bucketId }),
+  createFile: (params: {
+    name: string;
+    content?: string;
+    parentId?: string | null;
+    bucketId?: string | null;
+    mimeType?: string;
+  }) => api.post<ApiResponse<FileItem>>('/api/files/create', params),
   update: (id: string, data: { name?: string; parentId?: string | null }) =>
     api.put<ApiResponse<{ message: string }>>(`/api/files/${id}`, data),
   updateSettings: (id: string, data: { allowedMimeTypes?: string[] | null }) =>

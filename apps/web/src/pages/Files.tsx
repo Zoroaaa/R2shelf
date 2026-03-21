@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button';
 import {
   Upload,
   FolderPlus,
+  FilePlus,
   Grid,
   List,
   Trash2,
@@ -53,7 +54,7 @@ import {
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
 
-import { NewFolderDialog, ShareDialog, FileListContainer } from '@/components/files';
+import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer } from '@/components/files';
 import { UploadLinkDialog } from '@/components/files/ShareDialog';
 import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
 import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
@@ -94,6 +95,16 @@ export default function Files() {
     setNewFolderName,
     newFolderBucketId,
     setNewFolderBucketId,
+    showNewFileDialog,
+    setShowNewFileDialog,
+    newFileName,
+    setNewFileName,
+    newFileContent,
+    setNewFileContent,
+    newFileExtension,
+    setNewFileExtension,
+    newFileParentId,
+    setNewFileParentId,
     uploadProgresses,
     setUploadProgresses,
     shareFileId,
@@ -116,6 +127,7 @@ export default function Files() {
     folderInputRef,
     searchInputRef,
     resetNewFolderDialog,
+    resetNewFileDialog,
   } = pageState;
 
   // ── Phase 6 new state ──────────────────────────────────────────────────
@@ -230,6 +242,7 @@ export default function Files() {
   const fileMutations = useFileMutations();
   const {
     createFolderMutation,
+    createFileMutation,
     deleteMutation,
     renameMutation,
     moveMutation,
@@ -447,6 +460,7 @@ export default function Files() {
     onSelectAll: () => selectAll(displayFiles),
     onUpload: () => fileInputRef.current?.click(),
     onNewFolder: () => setShowNewFolderDialog(true),
+    onNewFile: () => setShowNewFileDialog(true),
     onPaste: handlePaste,
     hasClipboard: !!clipboard && clipboard.files.length > 0,
     clipboardCount: clipboard?.files.length || 0,
@@ -805,9 +819,14 @@ export default function Files() {
             <RefreshCw className="h-4 w-4" />
           </Button>
 
+          <Button variant="outline" size="sm" onClick={() => setShowNewFileDialog(true)} className="hidden sm:flex">
+            <FilePlus className="h-4 w-4 mr-1.5" />
+            新建文件
+          </Button>
+
           <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)} className="hidden sm:flex">
             <FolderPlus className="h-4 w-4 mr-1.5" />
-            新建
+            新建文件夹
           </Button>
 
           <label className="inline-flex">
@@ -933,6 +952,39 @@ export default function Files() {
           }}
           onCancel={resetNewFolderDialog}
           loading={createFolderMutation.isPending}
+        />
+      )}
+
+      {showNewFileDialog && (
+        <NewFileDialog
+          isRoot={!folderId}
+          name={newFileName}
+          content={newFileContent}
+          selectedExtension={newFileExtension}
+          parentId={newFileParentId}
+          onNameChange={setNewFileName}
+          onContentChange={setNewFileContent}
+          onExtensionChange={setNewFileExtension}
+          onParentIdChange={setNewFileParentId}
+          onConfirm={() => {
+            if (!newFileName.trim()) return;
+            const trimmedName = newFileName.trim();
+            const finalName = trimmedName.includes('.') ? trimmedName : `${trimmedName}${newFileExtension}`;
+            const selectedTemplate = FILE_TEMPLATES.find((t) => t.extension === newFileExtension);
+            createFileMutation.mutate(
+              {
+                name: finalName,
+                content: newFileContent,
+                parentId: folderId || null,
+                mimeType: selectedTemplate?.mimeType,
+              },
+              {
+                onSuccess: () => resetNewFileDialog(),
+              }
+            );
+          }}
+          onCancel={resetNewFileDialog}
+          loading={createFileMutation.isPending}
         />
       )}
 
