@@ -554,32 +554,27 @@ export default function Files() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap md:hidden">
-          <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)}>
-            <FolderPlus className="h-4 w-4" />
-          </Button>
-          <label className="inline-flex">
-            <Button variant="outline" size="sm" asChild>
-              <span>
-                <Upload className="h-4 w-4" />
-              </span>
-            </Button>
+          <div className="relative w-full order-first">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={(e) => {
-                Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                  handleUpload(file, key);
-                });
-                e.target.value = '';
-              }}
+              className="pl-8 pr-8 h-9 w-full rounded-md border bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
+              placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
+              value={searchInput}
+              onChange={(e) => handleSearchInput(e.target.value)}
             />
-          </label>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
+            {(searchInput || tagSearchQuery) && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setSearchInput('');
+                  setSearchQuery('');
+                  setTagSearchQuery(null);
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <div className="flex border rounded-md overflow-hidden">
             {viewModes.map(({ mode, icon: Icon, label }) => (
               <Button
@@ -608,6 +603,63 @@ export default function Files() {
               </Button>
             )}
           </div>
+          <Button variant="outline" size="sm" onClick={() => setShowNewFileDialog(true)}>
+            <FilePlus className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)}>
+            <FolderPlus className="h-4 w-4" />
+          </Button>
+          <label className="inline-flex">
+            <Button variant="outline" size="sm" asChild>
+              <span>
+                <Upload className="h-4 w-4" />
+              </span>
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              onChange={(e) => {
+                Array.from(e.target.files || []).forEach((file) => {
+                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                  handleUpload(file, key);
+                });
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <label className="inline-flex">
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
+            >
+              <span>
+                <FolderInput className="h-4 w-4" />
+              </span>
+            </Button>
+            <input
+              ref={folderInputRef}
+              type="file"
+              className="hidden"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={(e) => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+                const rootFolderName = (files[0] as any).webkitRelativePath?.split('/')[0] || '文件夹';
+                toast({
+                  title: `开始上传文件夹 "${rootFolderName}"`,
+                  description: `${files.length} 个文件`,
+                });
+                uploadFilesWithRelativePath(files);
+                e.target.value = '';
+              }}
+            />
+          </label>
           <Button
             variant="outline"
             size="sm"
@@ -615,6 +667,9 @@ export default function Files() {
             disabled={displayFiles.length === 0}
           >
             <CheckSquare className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
 

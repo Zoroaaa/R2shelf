@@ -314,37 +314,37 @@ export default function Downloads() {
           <p className="text-muted-foreground text-sm mt-0.5">创建和管理离线下载任务</p>
         </div>
         <div className={cn('flex items-center gap-2', isMobile && 'flex-col w-full')}>
-          <Button variant="outline" size="sm" onClick={() => refetch()} className={cn(isMobile && 'w-full')}>
-            <RefreshCw className="h-4 w-4 mr-1.5" />
-            刷新
-          </Button>
-          {!showForm && (
-            <>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setMode('single');
-                  setShowForm(true);
-                }}
-                className={cn(isMobile && 'w-full')}
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                新建下载
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setMode('batch');
-                  setShowForm(true);
-                }}
-                className={cn(isMobile && 'w-full')}
-              >
-                <ListPlus className="h-4 w-4 mr-1.5" />
-                批量导入
-              </Button>
-            </>
-          )}
+          <div className={cn('flex items-center gap-2', isMobile && 'w-full')}>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <RefreshCw className="h-4 w-4 mr-1.5" />
+              刷新
+            </Button>
+            {!showForm && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setMode('single');
+                    setShowForm(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  新建下载
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMode('batch');
+                    setShowForm(true);
+                  }}
+                >
+                  <ListPlus className="h-4 w-4 mr-1.5" />
+                  批量导入
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
