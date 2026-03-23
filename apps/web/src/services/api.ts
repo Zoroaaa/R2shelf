@@ -46,7 +46,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const url: string = error.config?.url || '';
       const isPublicEndpoint =
-        url.includes('/api/share/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
+        url.includes('/api/share/') ||
+        url.includes('/api/direct/') ||
+        url.includes('/api/auth/login') ||
+        url.includes('/api/auth/register');
       if (!isPublicEndpoint) {
         const { isAuthenticated } = useAuthStore.getState();
         if (isAuthenticated) {

@@ -62,8 +62,8 @@ app.get('/file/:fileId', authMiddleware, async (c) => {
     return c.json({ success: true, data: null });
   }
 
-  const baseUrl = c.env.PUBLIC_URL || '';
-  const directUrl = baseUrl ? `${baseUrl}/api/direct/${file.directLinkToken}` : `/api/direct/${file.directLinkToken}`;
+  const baseUrl = c.env.PUBLIC_URL || new URL(c.req.url).origin;
+  const directUrl = `${baseUrl}/api/direct/${file.directLinkToken}`;
 
   return c.json({
     success: true,
@@ -124,8 +124,8 @@ app.post('/', authMiddleware, async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  const baseUrl = c.env.PUBLIC_URL || '';
-  const directUrl = baseUrl ? `${baseUrl}/api/direct/${token}` : `/api/direct/${token}`;
+  const baseUrl = c.env.PUBLIC_URL || new URL(c.req.url).origin;
+  const directUrl = `${baseUrl}/api/direct/${token}`;
 
   return c.json({
     success: true,
@@ -215,8 +215,8 @@ app.put('/:fileId', authMiddleware, async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  const baseUrl = c.env.PUBLIC_URL || '';
-  const directUrl = baseUrl ? `${baseUrl}/api/direct/${file.directLinkToken}` : `/api/direct/${file.directLinkToken}`;
+  const baseUrl = c.env.PUBLIC_URL || new URL(c.req.url).origin;
+  const directUrl = `${baseUrl}/api/direct/${file.directLinkToken}`;
 
   return c.json({
     success: true,
