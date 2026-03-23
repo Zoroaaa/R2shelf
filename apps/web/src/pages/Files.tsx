@@ -1296,6 +1296,11 @@ export default function Files() {
             setUploadLinkFolder({ id: file.id, name: file.name });
           }
         }}
+        onDirectLink={(file) => {
+          if (!file.isFolder) {
+            setDirectLinkFile({ id: file.id, name: file.name });
+          }
+        }}
       />
     </div>
   );

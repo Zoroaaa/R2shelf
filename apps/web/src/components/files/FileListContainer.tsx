@@ -37,6 +37,7 @@ interface FileListContainerProps {
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
   onTagClick: (tagName: string) => void;
   onUploadLink?: (file: FileItem) => void;
+  onDirectLink?: (file: FileItem) => void;
 }
 
 export function FileListContainer({
@@ -60,6 +61,7 @@ export function FileListContainer({
   onContextMenu,
   onTagClick,
   onUploadLink,
+  onDirectLink,
 }: FileListContainerProps) {
   const hasImages = imageFiles.length > 0;
 
@@ -114,6 +116,7 @@ export function FileListContainer({
             onContextMenu={onContextMenu}
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
+            onDirectLink={onDirectLink}
           />
         ))}
       </div>
@@ -141,6 +144,7 @@ export function FileListContainer({
             onContextMenu={onContextMenu}
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
+            onDirectLink={onDirectLink}
           />
         ))}
       </div>
@@ -167,6 +171,7 @@ export function FileListContainer({
           onContextMenu={onContextMenu}
           onTagClick={onTagClick}
           onUploadLink={onUploadLink}
+          onDirectLink={onDirectLink}
         />
       ))}
     </div>

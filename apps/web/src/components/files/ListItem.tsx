@@ -6,6 +6,7 @@
  * - 列表视图展示文件
  * - 选择、预览、下载等操作
  * - 显示标签、存储桶、权限等信息
+ * - 移动端一行三个按钮布局
  */
 
 import { useResponsive } from '@/hooks/useResponsive';
@@ -28,6 +29,7 @@ import {
   User,
   Upload,
   FolderOpen,
+  Link,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
@@ -46,6 +48,7 @@ export function ListItem({
   onContextMenu,
   onTagClick,
   onUploadLink,
+  onDirectLink,
 }: ItemProps) {
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const { isMobile } = useResponsive();
@@ -127,45 +130,83 @@ export function ListItem({
         className={cn(
           'transition-opacity',
           isMobile
-            ? 'opacity-100 flex flex-wrap gap-0.5 max-w-[80px] justify-end'
+            ? 'opacity-100 grid grid-cols-3 gap-0.5 max-w-[120px]'
             : 'opacity-0 group-hover:opacity-100 flex items-center gap-0.5'
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        {canPreview && (
-          <ActionBtn title="预览" onClick={() => onPreview(file)}>
-            <Eye className="h-3.5 w-3.5" />
-          </ActionBtn>
+        {isMobile ? (
+          <>
+            {canPreview && (
+              <ActionBtn title="预览" onClick={() => onPreview(file)}>
+                <Eye className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {!file.isFolder && onDirectLink && (
+              <ActionBtn title="直链" onClick={() => onDirectLink(file)}>
+                <Link className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {file.isFolder && onUploadLink && (
+              <ActionBtn title="上传链接" onClick={() => onUploadLink(file)}>
+                <Upload className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {!canPreview && !file.isFolder && (
+              <ActionBtn title="下载" onClick={() => onDownload(file)}>
+                <Download className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            <ActionBtn title="分享" onClick={() => onShare(file.id)}>
+              <Share2 className="h-3.5 w-3.5" />
+            </ActionBtn>
+            <ActionBtn title="更多" onClick={() => onContextMenu({} as React.MouseEvent, file)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </ActionBtn>
+          </>
+        ) : (
+          <>
+            {canPreview && (
+              <ActionBtn title="预览" onClick={() => onPreview(file)}>
+                <Eye className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {file.isFolder && onUploadLink && (
+              <ActionBtn title="创建上传链接" onClick={() => onUploadLink(file)}>
+                <Upload className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {file.isFolder && (
+              <ActionBtn title="分享文件夹" onClick={() => onShare(file.id)}>
+                <Share2 className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {!file.isFolder && onDirectLink && (
+              <ActionBtn title="直链管理" onClick={() => onDirectLink(file)}>
+                <Link className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            <ActionBtn title="重命名" onClick={() => onRename(file)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </ActionBtn>
+            <ActionBtn title="移动到…" onClick={() => onMove(file)}>
+              <FolderInput className="h-3.5 w-3.5" />
+            </ActionBtn>
+            {!file.isFolder && (
+              <ActionBtn title="下载" onClick={() => onDownload(file)}>
+                <Download className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {!file.isFolder && (
+              <ActionBtn title="分享" onClick={() => onShare(file.id)}>
+                <Share2 className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            <ActionBtn title="移入回收站" onClick={() => onDelete(file)} danger>
+              <Trash2 className="h-3.5 w-3.5" />
+            </ActionBtn>
+          </>
         )}
-        {file.isFolder && onUploadLink && (
-          <ActionBtn title="创建上传链接" onClick={() => onUploadLink(file)}>
-            <Upload className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        {file.isFolder && (
-          <ActionBtn title="分享文件夹" onClick={() => onShare(file.id)}>
-            <Share2 className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="重命名" onClick={() => onRename(file)}>
-          <Pencil className="h-3.5 w-3.5" />
-        </ActionBtn>
-        <ActionBtn title="移动到…" onClick={() => onMove(file)}>
-          <FolderInput className="h-3.5 w-3.5" />
-        </ActionBtn>
-        {!file.isFolder && (
-          <ActionBtn title="下载" onClick={() => onDownload(file)}>
-            <Download className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        {!file.isFolder && (
-          <ActionBtn title="分享" onClick={() => onShare(file.id)}>
-            <Share2 className="h-3.5 w-3.5" />
-          </ActionBtn>
-        )}
-        <ActionBtn title="移入回收站" onClick={() => onDelete(file)} danger>
-          <Trash2 className="h-3.5 w-3.5" />
-        </ActionBtn>
       </div>
     </div>
   );

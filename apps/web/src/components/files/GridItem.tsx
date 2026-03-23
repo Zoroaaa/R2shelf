@@ -28,6 +28,7 @@ import {
   Database,
   User,
   Upload,
+  Link,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
@@ -47,6 +48,7 @@ export function GridItem({
   onContextMenu,
   onTagClick,
   onUploadLink,
+  onDirectLink,
 }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
@@ -113,6 +115,11 @@ export function GridItem({
           {file.isFolder && (
             <ActionBtn title="分享文件夹" onClick={() => onShare(file.id)}>
               <Share2 className="h-3.5 w-3.5" />
+            </ActionBtn>
+          )}
+          {!file.isFolder && onDirectLink && (
+            <ActionBtn title="直链管理" onClick={() => onDirectLink(file)}>
+              <Link className="h-3.5 w-3.5" />
             </ActionBtn>
           )}
           <ActionBtn title="重命名" onClick={() => onRename(file)}>

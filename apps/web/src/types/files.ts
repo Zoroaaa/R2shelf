@@ -26,6 +26,7 @@ export interface ItemProps {
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
   onTagClick?: (tagName: string) => void;
   onUploadLink?: (f: FileItem) => void;
+  onDirectLink?: (f: FileItem) => void;
 }
 
 export interface GalleryItemProps {

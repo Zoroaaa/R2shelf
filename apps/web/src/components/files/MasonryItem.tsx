@@ -34,6 +34,7 @@ export function MasonryItem({
   onContextMenu,
   onTagClick,
   onUploadLink: _onUploadLink,
+  onDirectLink: _onDirectLink,
 }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const isImage = file.mimeType?.startsWith('image/');
