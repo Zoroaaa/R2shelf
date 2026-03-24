@@ -10,21 +10,21 @@
  *
  * 路径存储格式说明：
  * - WebDAV 上传：客户端写入时对路径/文件名做 URL 编码，name 和 path 字段存储编码格式
- * （如 name="%E5%9C%A3%E5%A2%9F.json"，path="/legado/%E5%9C%A3%E5%A2%9F.json"）
+ *   （如 name="%E5%9C%A3%E5%A2%9F.json"，path="/legado/%E5%9C%A3%E5%A2%9F.json"）
  * - 非 WebDAV 上传（Web界面等）：name 和 path 字段存储原始中文
- * （如 name="个人项目"，path="/个人项目"）
+ *   （如 name="个人项目"，path="/个人项目"）
  * findFileByPath 策略1直接匹配 path 字段（命中 WebDAV 上传的记录），
  * 策略2按 name+parentId 层级递归，同时尝试原始值和 decode 值（兼容两种格式）。
  *
  * Windows 资源管理器兼容性说明：
  * - 所有 401 响应必须携带 DAV 头，否则 Mini-Redirector 不认为这是 WebDAV 服务器，
- * 直接报"输入的文件夹似乎无效"且不弹出密码框。
+ *   直接报"输入的文件夹似乎无效"且不弹出密码框。
  * - PROPFIND 响应的根节点 <href> 必须与请求路径精确匹配（不能多/少尾部斜杠）。
  * - 必须实现 LOCK/UNLOCK，否则写操作前 Windows 发出的 LOCK 请求得到 405 后卡死。
  */
 
 import { Hono, Context } from 'hono';
-import { eq, and, isNull, or } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import type { File } from '../db/schema';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
@@ -35,32 +35,15 @@ import type { Env, Variables } from '../types/env';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-// DAV 路由前缀
+// DAV 路由前缀，与 index.ts 中 app.route('/dav', ...) 保持一致
 const DAV_PREFIX = '/dav';
 
-// 所有响应需要携带的 DAV 基础头
+// 所有响应（包括 401）都需要携带的 DAV 基础头
+// Windows Mini-Redirector 会在 401 响应上二次确认 DAV 头，缺失则报"文件夹无效"
 const DAV_BASE_HEADERS = {
   DAV: '1, 2',
   'MS-Author-Via': 'DAV',
 };
-
-/**
- * 路径标准化工具
- * 仅处理末尾斜杠，不进行任何 URL 解码，保持客户端发送的原始编码格式
- */
-function normalizePath(p: string): string {
-  if (p === '/' || p === '') return '/';
-  return p.endsWith('/') ? p.slice(0, -1) : p;
-}
-
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
 
 app.options('/*', (_c) => {
   return new Response(null, {
@@ -77,6 +60,7 @@ app.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Basic ')) {
+    // 修复：401 必须携带 DAV 头，Windows Mini-Redirector 依此判断服务器是否支持 WebDAV
     return new Response('Unauthorized', {
       status: 401,
       headers: {
@@ -124,8 +108,8 @@ app.use('*', async (c, next) => {
 app.all('/*', async (c) => {
   const method = c.req.method.toUpperCase();
   const userId = c.get('userId')!;
+  // Strip /dav prefix to get the logical path
   const rawPath = new URL(c.req.url).pathname;
-  // 直接截取路径，不使用任何 decodeURIComponent
   const path = rawPath.replace(/^\/dav/, '') || '/';
 
   switch (method) {
@@ -147,6 +131,7 @@ app.all('/*', async (c) => {
     case 'LOCK':
       return handleLock(c, rawPath);
     case 'UNLOCK':
+      // UNLOCK：无状态实现，直接返回成功
       return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
     case 'PROPPATCH':
       return handleProppatch(c, rawPath);
@@ -161,40 +146,123 @@ app.all('/*', async (c) => {
   }
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────
 
-/**
- * 按逻辑路径查找文件
- * 修复：直接使用原始请求路径匹配，不再进行任何解码尝试
- */
-async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
-  const normalized = normalizePath(path);
-
-  return await db
-    .select()
-    .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        or(eq(files.path, normalized), eq(files.path, normalized + '/')),
-        isNull(files.deletedAt)
-      )
-    )
-    .get();
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
-function buildPropfindXML(items: File[], rawPath: string, isRoot: boolean = false): string {
+type FileRow = typeof files.$inferSelect;
+type FolderCache = Map<string, { name: string; parentId: string | null }>;
+
+/**
+ * 构建请求级文件夹缓存（id → {name, parentId}）。
+ * 每次请求独立构建，避免模块级共享 Map 在 Cloudflare Workers 并发请求间互相污染
+ * （原实现用全局 Map + clearPathCache，并发时会出现缓存被其他请求清空导致路径截断的问题）。
+ */
+async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): Promise<FolderCache> {
+  const cache: FolderCache = new Map();
+  const allFolders = await db
+    .select({ id: files.id, name: files.name, parentId: files.parentId })
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .all();
+
+  for (const folder of allFolders) {
+    cache.set(folder.id, { name: folder.name, parentId: folder.parentId });
+  }
+  return cache;
+}
+
+// WebDAV 上传的 name 字段存储 URL 编码格式，displayname 输出时 decode 为可读中文
+function decodeName(name: string): string {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+// findFileByPath 策略2中对路径分段安全 decode，用于匹配非 WebDAV 上传的原始中文 name
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+// 将路径各段统一 encode：先 decode（兼容已编码的 WebDAV name），再 encode，
+// 确保最终 href 格式统一为 URL 编码，与客户端请求路径格式一致。
+function encodePathSegments(path: string): string {
+  return path
+    .split('/')
+    .map((seg) => (seg ? encodeURIComponent(safeDecodeURIComponent(seg)) : seg))
+    .join('/');
+}
+
+function buildLogicalPathFromCache(cache: FolderCache, parentId: string | null, fileName: string): string {
+  // 使用数据库原始 name 拼接路径（不 decode），保持与数据库 path 字段一致的格式，
+  // 确保 href 与客户端下次请求的路径匹配（策略1可直接命中）。
+  // displayname 的 decode 在 buildPropfindXML 中单独处理。
+  if (!parentId) {
+    return `/${fileName}`;
+  }
+
+  const pathParts: string[] = [fileName];
+  let currentId: string | null = parentId;
+
+  while (currentId) {
+    const folder = cache.get(currentId);
+    if (!folder) break;
+    pathParts.unshift(folder.name);
+    currentId = folder.parentId;
+  }
+
+  return '/' + pathParts.join('/');
+}
+
+function buildItemsWithLogicalPaths(cache: FolderCache, items: FileRow[]): FileRow[] {
+  return items.map((file) => {
+    const logicalPath = buildLogicalPathFromCache(cache, file.parentId, file.name);
+    return {
+      ...file,
+      path: file.isFolder ? logicalPath + '/' : logicalPath,
+    };
+  });
+}
+
+/**
+ * 构建 PROPFIND 响应 XML。
+ *
+ * @param items   当前目录下的文件/文件夹列表（path 字段已由 buildItemsWithLogicalPaths 重建为逻辑路径）
+ * @param rawPath 原始请求路径（含 /dav 前缀），用于根集合条目的 <href> 精确匹配
+ * @param isRoot  是否渲染根集合条目（自身 response 节点）
+ *
+ * 注意：
+ * - 根节点 <href> 使用 rawPath 而非构造值，确保与客户端请求路径精确匹配（Windows 严格校验）
+ * - 子项 <href> = DAV_PREFIX + 逻辑路径（由 buildLogicalPathFromCache 从 parentId 链递归构建）
+ * - displayname 对 WebDAV 上传的编码文件名做 decode，统一展示为可读格式
+ */
+function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
+    const rootHref = rawPath;
     responses.push(`
   <response>
-    <href>${escapeXml(rawPath)}</href>
+    <href>${escapeXml(rootHref)}</href>
     <propstat>
       <prop>
         <displayname></displayname>
         <resourcetype><collection/></resourcetype>
         <getlastmodified>${new Date().toUTCString()}</getlastmodified>
+        <creationdate>${new Date().toISOString()}</creationdate>
       </prop>
       <status>HTTP/1.1 200 OK</status>
     </propstat>
@@ -202,19 +270,20 @@ function buildPropfindXML(items: File[], rawPath: string, isRoot: boolean = fals
   }
 
   items.forEach((file) => {
-    // 关键：href 必须和数据库存的一致（即客户端原始发送的编码串）
     let logicalPath = file.path;
     if (!logicalPath.startsWith('/')) logicalPath = '/' + logicalPath;
     if (file.isFolder && !logicalPath.endsWith('/')) logicalPath += '/';
 
-    const href = DAV_PREFIX + logicalPath;
+    // 对路径各段统一 encode，与 rawPath（自身节点 href）格式保持一致，
+    // 避免客户端因编码不一致把自身节点和子项当成两个不同路径
+    const href = DAV_PREFIX + encodePathSegments(logicalPath);
 
     responses.push(`
   <response>
     <href>${escapeXml(href)}</href>
     <propstat>
       <prop>
-        <displayname>${escapeXml(file.name)}</displayname>
+        <displayname>${escapeXml(decodeName(file.name))}</displayname>
         <getcontentlength>${file.size}</getcontentlength>
         <getlastmodified>${new Date(file.updatedAt).toUTCString()}</getlastmodified>
         <creationdate>${file.createdAt}</creationdate>
@@ -234,51 +303,160 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
 
+  // 构建请求级局部缓存，每次请求独立，避免并发请求间共享状态互相污染
+  const cache = await buildFolderCache(db, userId);
+
   const xmlHeaders = {
     'Content-Type': 'application/xml; charset=utf-8',
     ...DAV_BASE_HEADERS,
   };
 
+  let parentCondition;
+  let resolvedParent: File | undefined;
+
   if (isRoot) {
-    const rawItems = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.parentId), isNull(files.deletedAt)))
-      .all();
-    return new Response(buildPropfindXML(rawItems, rawPath, true), { status: 207, headers: xmlHeaders });
+    parentCondition = isNull(files.parentId);
+  } else {
+    resolvedParent = await findFileByPath(db, userId, path);
+    if (resolvedParent) {
+      parentCondition = eq(files.parentId, resolvedParent.id);
+    } else {
+      // 路径不存在：返回 404，让 WebDAV 客户端知道目录不存在
+      return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+    }
   }
 
-  const file = await findFileByPath(db, userId, path);
-  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+  const rawItems = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
+    .all();
+
+  const items = buildItemsWithLogicalPaths(cache, rawItems);
 
   if (depth === '0') {
-    return new Response(buildPropfindXML([file], rawPath, false), { status: 207, headers: xmlHeaders });
+    if (isRoot) {
+      return new Response(buildPropfindXML([], rawPath, true), {
+        status: 207,
+        headers: xmlHeaders,
+      });
+    } else {
+      if (resolvedParent) {
+        const currentWithLogicalPath = buildItemsWithLogicalPaths(cache, [resolvedParent]);
+        items.unshift(...currentWithLogicalPath);
+      }
+      return new Response(buildPropfindXML(items, rawPath, false), {
+        status: 207,
+        headers: xmlHeaders,
+      });
+    }
   }
 
-  const children = file.isFolder
-    ? await db.select().from(files).where(and(eq(files.userId, userId), eq(files.parentId, file.id), isNull(files.deletedAt))).all()
-    : [];
+  return new Response(buildPropfindXML(items, rawPath, true), {
+    status: 207,
+    headers: xmlHeaders,
+  });
+}
 
-  return new Response(buildPropfindXML(children, rawPath, true), { status: 207, headers: xmlHeaders });
+/**
+ * 按逻辑路径查找文件或文件夹，兼容两种上传方式的存储格式：
+ *
+ * 策略1（直接匹配 path 字段）：
+ *   适配 WebDAV 上传——客户端写入时对路径做 URL 编码，数据库 path 存储编码格式，
+ *   WebDAV 请求的 pathname 同样保留编码（new URL().pathname 不自动解码），可直接命中。
+ *
+ * 策略2（按 name+parentId 层级递归）：
+ *   适配非 WebDAV 上传——数据库 name/path 存储原始中文，但 WebDAV 客户端请求路径
+ *   中的中文会被编码为 %XX 格式，需对每段 decode 后才能匹配；同时保留原始值以兼容
+ *   WebDAV 上传的编码名（策略1未命中时的兜底）。
+ */
+async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
+  // 策略1：直接精确匹配 path 字段（命中 WebDAV 上传的编码路径）
+  const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
+
+  let file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
+    .get();
+
+  if (!file) {
+    file = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
+      .get();
+  }
+
+  if (file) return file;
+
+  // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
+  // WebDAV 请求路径中中文被编码为 %XX，需要 decode 后才能匹配数据库中的中文名称
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 0) return undefined;
+
+  let currentParentId: string | null = null;
+  let currentFile: File | undefined;
+
+  for (const part of parts) {
+    // 同时尝试原始值（匹配 WebDAV 上传的编码名）和 decoded 值（匹配非 WebDAV 上传的中文名）
+    const decodedPart = safeDecodeURIComponent(part);
+    const nameCandidates = Array.from(new Set([part, decodedPart]));
+
+    let found: File | undefined;
+    for (const namePart of nameCandidates) {
+      found = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, namePart),
+            currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
+            isNull(files.deletedAt)
+          )
+        )
+        .get();
+      if (found) break;
+    }
+
+    if (!found) return undefined;
+    currentFile = found;
+    currentParentId = currentFile.id;
+  }
+
+  return currentFile;
 }
 
 async function handleGet(c: AppContext, userId: string, path: string, headOnly: boolean) {
   const db = getDb(c.env.DB);
+
+  if (path === '/' || path === '') {
+    return new Response(headOnly ? null : 'Root Collection', {
+      status: 200,
+      headers: {
+        ...DAV_BASE_HEADERS,
+        'Content-Type': 'text/html',
+        'Content-Length': '14',
+      },
+    });
+  }
+
   const file = await findFileByPath(db, userId, path);
 
-  if (!file || file.isFolder) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+  if (file.isFolder) return new Response('Is a collection', { status: 400, headers: DAV_BASE_HEADERS });
 
-  const encKey = getEncryptionKey(c.env);
-  const bucketCfg = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+  const encKeyG = getEncryptionKey(c.env);
+  const bucketCfgG = await resolveBucketConfig(db, userId, encKeyG, file.bucketId, file.parentId);
   const hdrs = {
     ...DAV_BASE_HEADERS,
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Length': file.size.toString(),
   };
-
-  if (bucketCfg) {
+  if (bucketCfgG) {
     if (headOnly) return new Response(null, { headers: hdrs });
-    const s3Res = await s3Get(bucketCfg, file.r2Key);
+    const s3Res = await s3Get(bucketCfgG, file.r2Key);
     return new Response(s3Res.body, { headers: hdrs });
   } else if (c.env.FILES) {
     const r2Object = await c.env.FILES.get(file.r2Key);
@@ -290,36 +468,99 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
 
 async function handlePut(c: AppContext, userId: string, path: string) {
   const body = await c.req.arrayBuffer();
-  const normalizedPath = normalizePath(path);
+  // 关键修复：先标准化路径，去除尾部斜杠，确保路径解析正确
+  const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
   const fileName = normalizedPath.split('/').pop() || 'untitled';
   const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
+  const encKeyP = getEncryptionKey(c.env);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
-    if (!parentFolder) return new Response('Conflict', { status: 409, headers: DAV_BASE_HEADERS });
-    parentId = parentFolder.id;
+    if (!parentFolder) {
+      // 自动创建父目录
+      const pathParts = parentPath.split('/').filter(Boolean);
+      let currentParentId: string | null = null;
+      let currentPath = '';
+
+      for (const part of pathParts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
+        const folder = await findFileByPath(db, userId, currentPath);
+
+        if (!folder) {
+          const folderId = crypto.randomUUID();
+          const now = new Date().toISOString();
+          const bucketCfg = await resolveBucketConfig(db, userId, encKeyP, null, currentParentId);
+
+          await db.insert(files).values({
+            id: folderId,
+            userId,
+            parentId: currentParentId,
+            name: part,
+            path: currentPath,
+            type: 'folder',
+            size: 0,
+            r2Key: `folders/${folderId}`,
+            mimeType: null,
+            hash: null,
+            isFolder: true,
+            bucketId: bucketCfg?.id ?? null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          });
+          currentParentId = folderId;
+        } else {
+          currentParentId = folder.id;
+        }
+      }
+      parentId = currentParentId;
+    } else {
+      parentId = parentFolder.id;
+    }
   }
 
   const existingFile = await findFileByPath(db, userId, normalizedPath);
+
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
-  const r2Key = `files/${userId}/${fileId}/${fileName}`;
   const mimeType = c.req.header('Content-Type') || 'application/octet-stream';
+  const r2Key = `files/${userId}/${fileId}/${fileName}`;
 
-  const bucketCfg = await resolveBucketConfig(db, userId, encKey, existingFile?.bucketId, parentId);
+  const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
 
-  if (bucketCfg) {
-    await s3Put(bucketCfg, r2Key, body, mimeType);
+  if (!existingFile) {
+    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (userRow && userRow.storageUsed + body.byteLength > userRow.storageQuota) {
+      return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
+    }
+    if (bucketCfgP) {
+      const quotaErr = await checkBucketQuota(db, bucketCfgP.id, body.byteLength);
+      if (quotaErr) return new Response(quotaErr, { status: 507, headers: DAV_BASE_HEADERS });
+    }
+  }
+
+  if (bucketCfgP) {
+    await s3Put(bucketCfgP, r2Key, body, mimeType, { userId, originalName: fileName });
   } else if (c.env.FILES) {
     await c.env.FILES.put(r2Key, body, { httpMetadata: { contentType: mimeType } });
+  } else {
+    return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
   }
 
   if (existingFile) {
     await db.update(files).set({ size: body.byteLength, mimeType, updatedAt: now }).where(eq(files.id, fileId));
+
+    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (userRow) {
+      const sizeDelta = body.byteLength - existingFile.size;
+      await db
+        .update(users)
+        .set({ storageUsed: Math.max(0, userRow.storageUsed + sizeDelta), updatedAt: now })
+        .where(eq(users.id, userId));
+    }
   } else {
     await db.insert(files).values({
       id: fileId,
@@ -331,46 +572,66 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       size: body.byteLength,
       r2Key,
       mimeType,
+      hash: null,
       isFolder: false,
-      bucketId: bucketCfg?.id ?? null,
+      bucketId: bucketCfgP?.id ?? null,
       createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     });
-    if (bucketCfg) await updateBucketStats(db, bucketCfg.id, body.byteLength, 1);
+    if (bucketCfgP) await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
+
+    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (userRow) {
+      await db
+        .update(users)
+        .set({ storageUsed: userRow.storageUsed + body.byteLength, updatedAt: now })
+        .where(eq(users.id, userId));
+    }
   }
 
   return new Response(null, { status: existingFile ? 204 : 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
-  const normalizedPath = normalizePath(path);
-  const folderName = normalizedPath.split('/').pop() || 'untitled';
-  const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
+  // 关键修复：先去除尾部斜杠，确保路径解析正确
+  const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
+  const folderName = cleanPath.split('/').pop() || 'untitled';
+  const parentPath = cleanPath.lastIndexOf('/') > 0 ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
-    if (!parentFolder) return new Response('Conflict', { status: 409, headers: DAV_BASE_HEADERS });
+    if (!parentFolder) return new Response('Conflict: parent not found', { status: 409, headers: DAV_BASE_HEADERS });
     parentId = parentFolder.id;
   }
 
+  // 文件夹路径存储时带尾部斜杠
+  const normalizedPath = cleanPath + '/';
+
   const existing = await findFileByPath(db, userId, normalizedPath);
-  if (existing) return new Response('Method Not Allowed', { status: 405, headers: DAV_BASE_HEADERS });
+  if (existing) return new Response('Method Not Allowed: already exists', { status: 405, headers: DAV_BASE_HEADERS });
+
+  const folderId = crypto.randomUUID();
+  const now = new Date().toISOString();
 
   await db.insert(files).values({
-    id: crypto.randomUUID(),
+    id: folderId,
     userId,
     parentId,
     name: folderName,
     path: normalizedPath,
     type: 'folder',
     size: 0,
-    r2Key: `folders/${crypto.randomUUID()}`,
+    r2Key: `folders/${folderId}`,
+    mimeType: null,
+    hash: null,
     isFolder: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
   });
 
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
@@ -379,38 +640,192 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
 async function handleDelete(c: AppContext, userId: string, path: string) {
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
+
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
+  if (!file.isFolder) {
+    const encKeyD = getEncryptionKey(c.env);
+    const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, file.bucketId, file.parentId);
+    if (bucketCfgD) {
+      try {
+        await s3Delete(bucketCfgD, file.r2Key);
+      } catch (e) {
+        console.error('webdav delete s3 error:', e);
+      }
+      await updateBucketStats(db, bucketCfgD.id, -file.size, -1);
+    } else if (c.env.FILES) {
+      await c.env.FILES.delete(file.r2Key);
+    }
+    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+    if (userRow) {
+      await db
+        .update(users)
+        .set({ storageUsed: Math.max(0, userRow.storageUsed - file.size), updatedAt: new Date().toISOString() })
+        .where(eq(users.id, userId));
+    }
+  }
   await db.delete(files).where(eq(files.id, file.id));
   return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
 }
 
 async function handleMove(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
-  if (!destination) return new Response('Bad Request', { status: 400, headers: DAV_BASE_HEADERS });
-  const destPath = normalizePath(new URL(destination).pathname.replace(/^\/dav/, '') || '/');
+  if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
+  const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  // 关键修复：标准化目标路径，去除尾部斜杠
+  const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
+
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
   const newName = destPath.split('/').pop() || file.name;
-  await db.update(files).set({ path: destPath, name: newName, updatedAt: new Date().toISOString() }).where(eq(files.id, file.id));
+
+  const destParentPath = destPath.lastIndexOf('/') > 0 ? destPath.slice(0, destPath.lastIndexOf('/')) : '/';
+  let destParentId: string | null = null;
+  if (destParentPath !== '/') {
+    const destParentFolder = await findFileByPath(db, userId, destParentPath);
+    destParentId = destParentFolder?.id ?? null;
+  }
+
+  await db
+    .update(files)
+    .set({ name: newName, path: destPath, parentId: destParentId, updatedAt: new Date().toISOString() })
+    .where(eq(files.id, file.id));
+
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleCopy(c: AppContext, userId: string, path: string) {
-  return new Response('Not Implemented', { status: 501, headers: DAV_BASE_HEADERS });
+  const destination = c.req.header('Destination');
+  if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
+
+  const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  // 关键修复：标准化目标路径，去除尾部斜杠
+  const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
+  const db = getDb(c.env.DB);
+  const file = await findFileByPath(db, userId, path);
+
+  if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
+
+  const newName = destPath.split('/').pop() || file.name;
+  const newId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  if (!file.isFolder) {
+    const encKeyC = getEncryptionKey(c.env);
+    const bucketCfgC = await resolveBucketConfig(db, userId, encKeyC, file.bucketId, file.parentId);
+    const newR2Key = `files/${userId}/${newId}/${newName}`;
+    if (bucketCfgC) {
+      const srcRes = await s3Get(bucketCfgC, file.r2Key);
+      await s3Put(bucketCfgC, newR2Key, await srcRes.arrayBuffer(), file.mimeType || 'application/octet-stream');
+      await db.insert(files).values({
+        id: newId,
+        userId,
+        parentId: file.parentId,
+        name: newName,
+        path: destPath,
+        type: 'file',
+        size: file.size,
+        r2Key: newR2Key,
+        mimeType: file.mimeType,
+        hash: file.hash,
+        isFolder: false,
+        bucketId: file.bucketId,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      await updateBucketStats(db, bucketCfgC.id, file.size, 1);
+    } else if (c.env.FILES) {
+      const r2Object = await c.env.FILES.get(file.r2Key);
+      if (r2Object) {
+        await c.env.FILES.put(newR2Key, r2Object.body, {
+          httpMetadata: { contentType: file.mimeType || 'application/octet-stream' },
+        });
+        await db.insert(files).values({
+          id: newId,
+          userId,
+          parentId: file.parentId,
+          name: newName,
+          path: destPath,
+          type: 'file',
+          size: file.size,
+          r2Key: newR2Key,
+          mimeType: file.mimeType,
+          hash: file.hash,
+          isFolder: false,
+          bucketId: null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      }
+    }
+  }
+
+  return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
+/**
+ * LOCK 处理器
+ *
+ * Windows 资源管理器和 WinSCP 在写操作前会先发 LOCK 请求。
+ * 无状态实现：每次返回新 token，不持久化。单用户场景完全够用。
+ */
 function handleLock(c: AppContext, rawPath: string) {
   const token = `urn:uuid:${crypto.randomUUID()}`;
-  const xml = `<?xml version="1.0" encoding="utf-8"?><prop xmlns="DAV:"><lockdiscovery><activelock><locktype><write/></locktype><lockscope><exclusive/></lockscope><locktoken><href>${escapeXml(token)}</href></locktoken><lockroot><href>${escapeXml(rawPath)}</href></lockroot></activelock></lockdiscovery></prop>`;
-  return new Response(xml, { status: 200, headers: { ...DAV_BASE_HEADERS, 'Content-Type': 'application/xml; charset=utf-8', 'Lock-Token': `<${token}>` } });
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<prop xmlns="DAV:">
+  <lockdiscovery>
+    <activelock>
+      <locktype><write/></locktype>
+      <lockscope><exclusive/></lockscope>
+      <depth>0</depth>
+      <owner/>
+      <timeout>Second-3600</timeout>
+      <locktoken><href>${escapeXml(token)}</href></locktoken>
+      <lockroot><href>${escapeXml(rawPath)}</href></lockroot>
+    </activelock>
+  </lockdiscovery>
+</prop>`;
+
+  return new Response(xml, {
+    status: 200,
+    headers: {
+      ...DAV_BASE_HEADERS,
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Lock-Token': `<${token}>`,
+    },
+  });
 }
 
+/**
+ * PROPPATCH 处理器
+ *
+ * OSSshelf 属性均为只读，返回标准 403 响应防止客户端因无响应而挂起。
+ */
 function handleProppatch(c: AppContext, rawPath: string) {
-  return new Response(null, { status: 207, headers: DAV_BASE_HEADERS });
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<multistatus xmlns="DAV:">
+  <response>
+    <href>${escapeXml(rawPath)}</href>
+    <propstat>
+      <prop/>
+      <status>HTTP/1.1 403 Forbidden</status>
+    </propstat>
+  </response>
+</multistatus>`;
+
+  return new Response(xml, {
+    status: 207,
+    headers: {
+      ...DAV_BASE_HEADERS,
+      'Content-Type': 'application/xml; charset=utf-8',
+    },
+  });
 }
 
 export default app;
