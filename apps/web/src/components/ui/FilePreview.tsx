@@ -266,12 +266,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const renderExcelTable = () => {
     if (!excelData) return null;
     const html = XLSX.utils.sheet_to_html(excelData);
-    return (
-      <div
-        className="w-full h-full overflow-auto"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <div className="w-full h-full overflow-auto" dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
   const renderOfficeFallback = (message?: string) => (
@@ -455,9 +450,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       {renderOfficeFallback('Excel 加载失败')}
                     </div>
                   ) : (
-                    <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900">
-                      {renderExcelTable()}
-                    </div>
+                    <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900">{renderExcelTable()}</div>
                   )}
                 </>
               ) : isPpt ? (

@@ -52,10 +52,7 @@ export class AppError extends Error {
   }
 }
 
-export function createErrorResponse(
-  c: Context<AppEnv>,
-  error: AppError | Error | unknown
-): Response {
+export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error | unknown): Response {
   const requestId = crypto.randomUUID();
   const timestamp = new Date().toISOString();
   const isDev = c.env.ENVIRONMENT === 'development';

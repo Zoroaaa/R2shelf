@@ -220,9 +220,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
           </div>
         )}
 
-        {error && (
-          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm border-b">{error}</div>
-        )}
+        {error && <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm border-b">{error}</div>}
 
         <div className="flex-1 overflow-auto p-4">
           {loading ? (

@@ -275,7 +275,6 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   TG_CONFIG_ERROR: { code: 'TG04', httpStatus: 500, message: 'Telegram配置错误' },
   TG_FILE_TOO_LARGE: { code: 'TG05', httpStatus: 413, message: '文件超过Telegram限制（最大2GB）' },
   TG_CHUNKED_DOWNLOAD_FAILED: { code: 'TG06', httpStatus: 502, message: 'Telegram分片下载失败' },
-
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

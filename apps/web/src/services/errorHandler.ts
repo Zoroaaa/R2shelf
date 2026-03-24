@@ -196,11 +196,15 @@ export function shouldRedirectToLogin(error: unknown): boolean {
   return parsed.isAuthError && !parsed.isNetworkError;
 }
 
-export function getErrorToast(error: unknown): { title: string; description: string; variant: 'destructive' | 'default' } {
+export function getErrorToast(error: unknown): {
+  title: string;
+  description: string;
+  variant: 'destructive' | 'default';
+} {
   const parsed = parseApiError(error);
 
   let title = '操作失败';
-  
+
   if (parsed.isNetworkError) {
     title = '网络错误';
   } else if (parsed.isTimeout) {
@@ -220,7 +224,7 @@ export function getErrorToast(error: unknown): { title: string; description: str
 
 export function logError(error: unknown, context?: string): void {
   const parsed = parseApiError(error);
-  
+
   console.error('[Error]', {
     context,
     code: parsed.code,

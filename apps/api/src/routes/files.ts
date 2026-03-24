@@ -14,6 +14,7 @@ import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm'
 import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs } from '../db';
 import { checkFilePermission } from './permissions';
 import { authMiddleware } from '../middleware/auth';
+import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -109,24 +110,18 @@ app.get('/:id/preview', async (c) => {
       }
     }
   }
-  if (!userId) return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未授权' } }, 401);
-
+  if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), eq(files.userId, userId!), isNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  if (file.isFolder)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法预览文件夹' } }, 400);
-  if (!isPreviewableMimeType(file.mimeType))
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
-      400
-    );
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
+  if (!isPreviewableMimeType(file.mimeType)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -147,7 +142,7 @@ app.get('/:id/preview', async (c) => {
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       try {
         const body = isChunkedFileId(ref.tgFileId)
@@ -155,7 +150,7 @@ app.get('/:id/preview', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: pvHeaders });
       } catch (e: any) {
-        return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message } }, 502);
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
       }
     }
   }

@@ -502,17 +502,14 @@ app.delete('/me', authMiddleware, async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, userId!)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const isValid = await verifyPassword(result.data.password, user.passwordHash);
   if (!isValid) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '密码错误，无法注销账户' } },
-      401
-    );
+    throwAppError('WRONG_PASSWORD', '密码错误，无法注销账户');
   }
 
   const authHeader = c.req.header('Authorization');

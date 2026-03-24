@@ -107,13 +107,19 @@ app.post('/', authMiddleware, async (c) => {
   }
 
   if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持创建直链' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持创建直链' } },
+      400
+    );
   }
 
   const token = file.directLinkToken || crypto.randomUUID();
   const now = new Date().toISOString();
   // expiresAt 为 null 表示永久有效，为 undefined 使用默认值
-  const expires = expiresAt === null ? null : (expiresAt || new Date(Date.now() + DIRECT_LINK_DEFAULT_EXPIRY_DAYS * 86400000).toISOString());
+  const expires =
+    expiresAt === null
+      ? null
+      : expiresAt || new Date(Date.now() + DIRECT_LINK_DEFAULT_EXPIRY_DAYS * 86400000).toISOString();
 
   await db
     .update(files)
@@ -205,7 +211,10 @@ app.put('/:fileId', authMiddleware, async (c) => {
 
   const now = new Date().toISOString();
   // expiresAt 为 null 表示永久有效，为 undefined 使用默认值
-  const expires = expiresAt === null ? null : (expiresAt || new Date(Date.now() + DIRECT_LINK_DEFAULT_EXPIRY_DAYS * 86400000).toISOString());
+  const expires =
+    expiresAt === null
+      ? null
+      : expiresAt || new Date(Date.now() + DIRECT_LINK_DEFAULT_EXPIRY_DAYS * 86400000).toISOString();
 
   await db
     .update(files)
@@ -375,7 +384,10 @@ app.get('/:token', async (c) => {
   }
 
   if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持直链访问' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持直链访问' } },
+      400
+    );
   }
 
   const encKey = getEncryptionKey(c.env);
