@@ -21,14 +21,14 @@ import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNav';
-import { FilePreview } from '@/components/ui/FilePreview';
-import { RenameDialog } from '@/components/ui/RenameDialog';
-import { MoveFolderPicker } from '@/components/ui/MoveFolderPicker';
-import { FileTagsManager } from '@/components/ui/FileTagsManager';
-import { FilePermissionManager } from '@/components/ui/FilePermissionManager';
-import { FolderSettings } from '@/components/ui/FolderSettings';
-import { useToast } from '@/components/ui/use-toast';
-import { Button } from '@/components/ui/button';
+import { FilePreview } from '@/components/files/FilePreview';
+import { RenameDialog } from '@/components/files/dialogs';
+import { MoveFolderPicker } from '@/components/files/dialogs';
+import { FileTagsManager } from '@/components/files/tags';
+import { FilePermissionManager } from '@/components/files/permissions';
+import { FolderSettings } from '@/components/files/FolderSettings';
+import { useToast } from '@/components/ui/useToast';
+import { Button } from '@/components/ui/Button';
 import {
   Upload,
   FolderPlus,
@@ -55,11 +55,11 @@ import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
 
 import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer } from '@/components/files';
-import { UploadLinkDialog } from '@/components/files/ShareDialog';
-import { DirectLinkDialog } from '@/components/files/DirectLinkDialog';
-import { VersionHistory } from '@/components/ui/VersionHistory';
-import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
-import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
+import { UploadLinkDialog } from '@/components/files/dialogs';
+import { DirectLinkDialog } from '@/components/files/dialogs';
+import { VersionHistory } from '@/components/files/VersionHistory';
+import { FolderPickerDialog } from '@/components/files/dialogs';
+import { MigrateBucketDialog } from '@/components/files/dialogs';
 import { useFileMutations } from '@/hooks/useFileMutations';
 import { useFileDragDrop } from '@/hooks/useFileDragDrop';
 import { useFileSearch } from '@/hooks/useFileSearch';

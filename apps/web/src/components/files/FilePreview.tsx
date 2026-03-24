@@ -30,8 +30,8 @@ import {
   Minimize2,
   RotateCcw,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { FileIcon } from '@/components/ui/FileIcon';
+import { Button } from '@/components/ui/Button';
+import { FileIcon } from '@/components/files/FileIcon';
 import { filesApi, previewApi } from '@/services/api';
 import { getPresignedPreviewUrl } from '@/services/presignUpload';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';

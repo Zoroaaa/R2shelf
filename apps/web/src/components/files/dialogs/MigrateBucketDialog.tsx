@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { bucketsApi, migrateApi, type StorageBucket, type MigrationStatus } from '@/services/api';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { formatBytes } from '@/utils';
 import { ArrowRight, Loader2, CheckCircle2, XCircle, AlertCircle, ArrowRightLeft, X } from 'lucide-react';
 

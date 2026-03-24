@@ -8,9 +8,9 @@ import { useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { shareApi, type ShareChildFile, type UploadLinkInfo } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { FileIcon } from '@/components/ui/FileIcon';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { FileIcon } from '@/components/files/FileIcon';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { ShareFilePreview } from '@/components/share/ShareFilePreview';
 import {
