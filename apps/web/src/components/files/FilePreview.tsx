@@ -103,7 +103,6 @@ const CODE_LANGUAGE_MAP: Record<string, string> = {
   xml: 'xml',
   yaml: 'yaml',
   yml: 'yaml',
-  md: 'markdown',
   css: 'css',
   scss: 'scss',
   less: 'less',
@@ -116,9 +115,21 @@ const CODE_LANGUAGE_MAP: Record<string, string> = {
   env: 'bash',
 };
 
+const CODE_EXTENSIONS = new Set([
+  'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp',
+  'cs', 'php', 'swift', 'kt', 'scala', 'r', 'sql', 'sh', 'bash', 'zsh', 'json',
+  'xml', 'yaml', 'yml', 'css', 'scss', 'less', 'html', 'vue', 'dockerfile',
+  'makefile', 'toml', 'ini', 'env'
+]);
+
 function getLanguageFromExtension(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   return CODE_LANGUAGE_MAP[ext] || 'plaintext';
+}
+
+function isCodeFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return CODE_EXTENSIONS.has(ext);
 }
 
 function highlightCode(code: string, language: string): string {
@@ -136,7 +147,7 @@ interface ExcelCellStyle {
   font?: {
     bold?: boolean;
     italic?: boolean;
-    color?: { rgb?: string };
+    color?: { rgb?: string; theme?: number };
     sz?: number;
     name?: string;
   };
@@ -171,6 +182,24 @@ function rgbToHex(rgb: string | undefined): string | undefined {
   return undefined;
 }
 
+const THEME_COLORS: Record<number, string> = {
+  0: '#FFFFFF',
+  1: '#000000',
+  2: '#E7E6E6',
+  3: '#44546A',
+  4: '#5B9BD5',
+  5: '#ED7D31',
+  6: '#A5A5A5',
+  7: '#FFC000',
+  8: '#4472C4',
+  9: '#70AD47',
+};
+
+function getThemeColor(theme?: number): string | undefined {
+  if (theme === undefined) return undefined;
+  return THEME_COLORS[theme];
+}
+
 function getExcelCellStyle(cell: XLSX.CellObject, workbook: XLSX.WorkBook): React.CSSProperties {
   const styles: React.CSSProperties = {};
   if (!cell.s) return styles;
@@ -185,13 +214,23 @@ function getExcelCellStyle(cell: XLSX.CellObject, workbook: XLSX.WorkBook): Reac
     if (cellStyle.font.color?.rgb) {
       const color = rgbToHex(cellStyle.font.color.rgb);
       if (color) styles.color = color;
+    } else if (cellStyle.font.color?.theme !== undefined) {
+      const themeColor = getThemeColor(cellStyle.font.color.theme);
+      if (themeColor) styles.color = themeColor;
     }
   }
 
-  if (cellStyle.fill?.fgColor) {
-    const bgColor = rgbToHex(cellStyle.fill.fgColor.rgb);
-    if (bgColor) {
-      styles.backgroundColor = bgColor;
+  if (cellStyle.fill?.patternType && cellStyle.fill.patternType !== 'none') {
+    if (cellStyle.fill.fgColor?.rgb) {
+      const bgColor = rgbToHex(cellStyle.fill.fgColor.rgb);
+      if (bgColor) {
+        styles.backgroundColor = bgColor;
+      }
+    } else if (cellStyle.fill.fgColor?.theme !== undefined) {
+      const themeColor = getThemeColor(cellStyle.fill.fgColor.theme);
+      if (themeColor) {
+        styles.backgroundColor = themeColor;
+      }
     }
   }
 
@@ -322,6 +361,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isAudio = file.mimeType?.startsWith('audio/');
   const isPdf = file.mimeType === 'application/pdf';
   const isMarkdown = file.mimeType === 'text/markdown' || file.name.endsWith('.md');
+  const isPlainText = file.mimeType === 'text/plain' || file.name.endsWith('.txt');
   const isText =
     file.mimeType?.startsWith('text/') ||
     file.mimeType === 'application/json' ||
@@ -337,7 +377,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     file.mimeType === 'application/vnd.ms-powerpoint';
   const isOffice = isWord || isExcel || isPpt;
-  const isCode = isText && !isMarkdown;
+  const isCode = isText && !isMarkdown && !isPlainText && isCodeFile(file.name);
 
   const detectedLanguage = useMemo(() => {
     if (previewInfo?.language) return previewInfo.language;
@@ -762,7 +802,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             />
           ) : isMarkdown ? (
             <div
-              className="w-full h-full overflow-auto p-6 prose dark:prose-invert prose-pre:bg-muted prose-pre:border prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none max-w-none prose-table:border-collapse prose-th:border prose-th:border-border prose-th:bg-muted prose-th:p-2 prose-td:border prose-td:border-border prose-td:p-2 prose-tr:even:bg-muted/30"
+              className="w-full h-full overflow-auto p-6 prose dark:prose-invert max-w-none prose-table:border-collapse prose-th:border prose-th:border-border prose-th:bg-muted prose-th:p-2 prose-td:border prose-td:border-border prose-td:p-2 prose-tr:even:bg-muted/30"
               style={{ fontSize: `${zoomLevel}%` }}
             >
               {textContent !== null ? (
@@ -772,7 +812,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   components={{
                     pre: ({ children, ...props }) => {
                       return (
-                        <pre {...props} className="overflow-x-auto">
+                        <pre
+                          {...props}
+                          className="overflow-x-auto bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+                        >
                           {children}
                         </pre>
                       );
@@ -782,13 +825,16 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       const isInline = !match && !className?.includes('hljs');
                       if (isInline) {
                         return (
-                          <code className="px-1.5 py-0.5 rounded bg-muted text-sm" {...props}>
+                          <code
+                            className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm font-mono"
+                            {...props}
+                          >
                             {children}
                           </code>
                         );
                       }
                       return (
-                        <code className={className} {...props}>
+                        <code className={`${className || ''} text-gray-800 dark:text-gray-200`} {...props}>
                           {children}
                         </code>
                       );
@@ -805,13 +851,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             </div>
           ) : isCode ? (
             <div
-              className="w-full h-full overflow-auto bg-[#0d1117] dark:bg-[#0d1117]"
+              className="w-full h-full overflow-auto bg-gray-50 dark:bg-gray-900"
               style={{ fontSize: `${zoomLevel}%` }}
             >
               {textContent !== null ? (
                 <pre className="p-4 m-0 leading-relaxed">
                   <code
-                    className={`language-${detectedLanguage} hljs`}
+                    className={`language-${detectedLanguage} hljs text-gray-800 dark:text-gray-200`}
                     dangerouslySetInnerHTML={{ __html: highlightedCode || textContent }}
                   />
                 </pre>
@@ -822,9 +868,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               )}
             </div>
           ) : isText ? (
-            <div className="w-full h-full overflow-auto p-4" style={{ fontSize: `${zoomLevel}%` }}>
+            <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4" style={{ fontSize: `${zoomLevel}%` }}>
               {textContent !== null ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed text-foreground/80">
+                <pre className="text-sm font-mono whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">
                   {textContent}
                 </pre>
               ) : (
