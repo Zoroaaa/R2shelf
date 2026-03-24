@@ -16,7 +16,20 @@ import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { X, Download, Share2, FileText, Volume2, FileSpreadsheet, Presentation } from 'lucide-react';
+import {
+  X,
+  Download,
+  Share2,
+  FileText,
+  Volume2,
+  FileSpreadsheet,
+  Presentation,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { filesApi, previewApi } from '@/services/api';
@@ -46,6 +59,15 @@ interface FilePreviewProps {
   onShare: (fileId: string) => void;
 }
 
+type WindowSize = 'small' | 'medium' | 'large' | 'fullscreen';
+
+const WINDOW_SIZE_CONFIG: Record<WindowSize, { width: string; height: string; maxWidth: string }> = {
+  small: { width: '60vw', height: '70vh', maxWidth: '800px' },
+  medium: { width: '80vw', height: '85vh', maxWidth: '1200px' },
+  large: { width: '90vw', height: '90vh', maxWidth: '1600px' },
+  fullscreen: { width: '100vw', height: '100vh', maxWidth: '100vw' },
+};
+
 export function FilePreview({ file, token, onClose, onDownload, onShare }: FilePreviewProps) {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -55,8 +77,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [officeError, setOfficeError] = useState<string | null>(null);
   const [excelData, setExcelData] = useState<XLSX.WorkSheet | null>(null);
   const [excelLoading, setExcelLoading] = useState(false);
+  const [excelWorkbook, setExcelWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [activeSheetName, setActiveSheetName] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const docxContainerRef = useRef<HTMLDivElement>(null);
+
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [windowSize, setWindowSize] = useState<WindowSize>('medium');
 
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -90,6 +117,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setOfficeError(null);
     setExcelData(null);
     setExcelLoading(false);
+    setExcelWorkbook(null);
+    setActiveSheetName(null);
+    setZoomLevel(100);
+    setWindowSize('medium');
 
     previewApi
       .getInfo(file.id)
@@ -212,8 +243,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       }
       const arrayBuffer = await response.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      setExcelWorkbook(workbook);
       const firstSheetName = workbook.SheetNames[0];
       if (firstSheetName) {
+        setActiveSheetName(firstSheetName);
         const worksheet = workbook.Sheets[firstSheetName] || null;
         setExcelData(worksheet);
       } else {
@@ -226,6 +259,41 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       setExcelLoading(false);
     }
   }, [isExcel, resolvedUrl]);
+
+  const handleSheetChange = useCallback(
+    (sheetName: string) => {
+      if (!excelWorkbook) return;
+      setActiveSheetName(sheetName);
+      const worksheet = excelWorkbook.Sheets[sheetName] || null;
+      setExcelData(worksheet);
+    },
+    [excelWorkbook]
+  );
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel((prev) => Math.min(prev + 25, 200));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel((prev) => Math.max(prev - 25, 50));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(100);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    setWindowSize((prev) => (prev === 'fullscreen' ? 'medium' : 'fullscreen'));
+  }, []);
+
+  const cycleWindowSize = useCallback(() => {
+    setWindowSize((prev) => {
+      const sizes: WindowSize[] = ['small', 'medium', 'large', 'fullscreen'];
+      const currentIndex = sizes.indexOf(prev);
+      const nextIndex = (currentIndex + 1) % sizes.length;
+      return sizes[nextIndex] as WindowSize;
+    });
+  }, []);
 
   useEffect(() => {
     if (isWord && resolvedUrl) {
@@ -265,8 +333,25 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   const renderExcelTable = () => {
     if (!excelData) return null;
-    const html = XLSX.utils.sheet_to_html(excelData);
-    return <div className="w-full h-full overflow-auto" dangerouslySetInnerHTML={{ __html: html }} />;
+    const html = XLSX.utils.sheet_to_html(excelData, { editable: false });
+    const styledHtml = html
+      .replace('<table>', '<table style="border-collapse: collapse; width: 100%; font-size: 13px;">')
+      .replace(
+        /<td/g,
+        '<td style="border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; vertical-align: top;"'
+      )
+      .replace(
+        /<th/g,
+        '<th style="border: 1px solid #d1d5db; padding: 8px 10px; background-color: #f3f4f6; font-weight: 600; text-align: left;"'
+      );
+    return (
+      <div
+        className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4"
+        style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
+      >
+        <div dangerouslySetInnerHTML={{ __html: styledHtml }} />
+      </div>
+    );
   };
 
   const renderOfficeFallback = (message?: string) => (
@@ -288,25 +373,29 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     </div>
   );
 
+  const sizeConfig = WINDOW_SIZE_CONFIG[windowSize];
+  const showZoomControls = isText || isMarkdown || isExcel || isWord;
+  const showSheetTabs = isExcel && excelWorkbook && excelWorkbook.SheetNames.length > 1;
+
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className={cn(
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm',
+        windowSize === 'fullscreen' ? 'p-0' : 'p-4'
+      )}
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
       <div
         className={cn(
-          'relative flex flex-col bg-card border rounded-xl shadow-2xl overflow-hidden',
-          isImage || isVideo
-            ? 'w-[90vw] max-w-5xl max-h-[90vh]'
-            : isAudio
-              ? 'w-full max-w-md'
-              : isPdf || isOffice
-                ? 'w-[90vw] max-w-5xl h-[90vh]'
-                : isText || isMarkdown
-                  ? 'w-[90vw] max-w-3xl max-h-[80vh]'
-                  : 'w-full max-w-md'
+          'relative flex flex-col bg-card border rounded-xl shadow-2xl overflow-hidden transition-all duration-300',
+          windowSize === 'fullscreen' ? 'rounded-none' : ''
         )}
+        style={{
+          width: sizeConfig.width,
+          height: sizeConfig.height,
+          maxWidth: sizeConfig.maxWidth,
+        }}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b flex-shrink-0">
           <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="sm" />
@@ -318,6 +407,50 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             </p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {showZoomControls && (
+              <>
+                <div className="flex items-center gap-0.5 mr-2 px-2 py-1 bg-muted/50 rounded-md">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    title="缩小"
+                    onClick={handleZoomOut}
+                    disabled={zoomLevel <= 50}
+                  >
+                    <ZoomOut className="h-3.5 w-3.5" />
+                  </Button>
+                  <span className="text-xs min-w-[40px] text-center">{zoomLevel}%</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    title="放大"
+                    onClick={handleZoomIn}
+                    disabled={zoomLevel >= 200}
+                  >
+                    <ZoomIn className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title="重置缩放" onClick={handleZoomReset}>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title={windowSize === 'fullscreen' ? '退出全屏' : '全屏'}
+              onClick={handleToggleFullscreen}
+            >
+              {windowSize === 'fullscreen' ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="切换窗口大小" onClick={cycleWindowSize}>
+              <span className="text-xs font-medium">
+                {windowSize === 'small' ? 'S' : windowSize === 'medium' ? 'M' : windowSize === 'large' ? 'L' : 'F'}
+              </span>
+            </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" title="下载" onClick={() => onDownload(file)}>
               <Download className="h-4 w-4" />
             </Button>
@@ -329,6 +462,25 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             </Button>
           </div>
         </div>
+
+        {showSheetTabs && (
+          <div className="flex items-center gap-1 px-4 py-2 border-b bg-muted/30 overflow-x-auto flex-shrink-0">
+            {excelWorkbook.SheetNames.map((name) => (
+              <button
+                key={name}
+                onClick={() => handleSheetChange(name)}
+                className={cn(
+                  'px-3 py-1.5 text-xs rounded-md whitespace-nowrap transition-colors',
+                  activeSheetName === name
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex-1 overflow-auto min-h-0">
           {loadError ? (
@@ -358,11 +510,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               <div className="text-muted-foreground text-sm py-12">加载中...</div>
             </div>
           ) : isImage ? (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center h-full overflow-auto p-4">
               <img
                 src={resolvedUrl}
                 alt={decodeFileName(file.name)}
                 className="max-w-full max-h-full object-contain"
+                style={{ transform: `scale(${zoomLevel / 100})` }}
                 onError={() => setLoadError(true)}
               />
             </div>
@@ -390,7 +543,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               onError={() => setLoadError(true)}
             />
           ) : isMarkdown ? (
-            <div className="w-full h-full overflow-auto p-6 prose dark:prose-invert max-w-none">
+            <div
+              className="w-full h-full overflow-auto p-6 prose dark:prose-invert max-w-none"
+              style={{ fontSize: `${zoomLevel}%` }}
+            >
               {textContent !== null ? (
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
               ) : (
@@ -400,7 +556,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               )}
             </div>
           ) : isText ? (
-            <div className="w-full h-full overflow-auto p-4">
+            <div className="w-full h-full overflow-auto p-4" style={{ fontSize: `${zoomLevel}%` }}>
               {textContent !== null ? (
                 <pre
                   className={cn(
@@ -436,6 +592,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       'w-full h-full overflow-auto bg-white dark:bg-gray-900',
                       officeLoading || officeError ? 'opacity-0' : 'opacity-100'
                     )}
+                    style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
                   />
                 </>
               ) : isExcel ? (
@@ -450,7 +607,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       {renderOfficeFallback('Excel 加载失败')}
                     </div>
                   ) : (
-                    <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900">{renderExcelTable()}</div>
+                    renderExcelTable()
                   )}
                 </>
               ) : isPpt ? (
