@@ -10,21 +10,21 @@
  *
  * 路径存储格式说明：
  * - WebDAV 上传：客户端写入时对路径/文件名做 URL 编码，name 和 path 字段存储编码格式
- *   （如 name="%E5%9C%A3%E5%A2%9F.json"，path="/legado/%E5%9C%A3%E5%A2%9F.json"）
+ * （如 name="%E5%9C%A3%E5%A2%9F.json"，path="/legado/%E5%9C%A3%E5%A2%9F.json"）
  * - 非 WebDAV 上传（Web界面等）：name 和 path 字段存储原始中文
- *   （如 name="个人项目"，path="/个人项目"）
+ * （如 name="个人项目"，path="/个人项目"）
  * findFileByPath 策略1直接匹配 path 字段（命中 WebDAV 上传的记录），
  * 策略2按 name+parentId 层级递归，同时尝试原始值和 decode 值（兼容两种格式）。
  *
  * Windows 资源管理器兼容性说明：
  * - 所有 401 响应必须携带 DAV 头，否则 Mini-Redirector 不认为这是 WebDAV 服务器，
- *   直接报"输入的文件夹似乎无效"且不弹出密码框。
+ * 直接报"输入的文件夹似乎无效"且不弹出密码框。
  * - PROPFIND 响应的根节点 <href> 必须与请求路径精确匹配（不能多/少尾部斜杠）。
  * - 必须实现 LOCK/UNLOCK，否则写操作前 Windows 发出的 LOCK 请求得到 405 后卡死。
  */
 
 import { Hono, Context } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, or } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import type { File } from '../db/schema';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
@@ -44,6 +44,15 @@ const DAV_BASE_HEADERS = {
   DAV: '1, 2',
   'MS-Author-Via': 'DAV',
 };
+
+/**
+ * 路径标准化工具
+ * 确保路径不以斜杠结尾（根目录除外），用于统一数据库匹配口径
+ */
+function normalizePath(p: string): string {
+  if (p === '/' || p === '') return '/';
+  return p.endsWith('/') ? p.slice(0, -1) : p;
+}
 
 app.options('/*', (_c) => {
   return new Response(null, {
@@ -363,33 +372,33 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
  * 按逻辑路径查找文件或文件夹，兼容两种上传方式的存储格式：
  *
  * 策略1（直接匹配 path 字段）：
- *   适配 WebDAV 上传——客户端写入时对路径做 URL 编码，数据库 path 存储编码格式，
- *   WebDAV 请求的 pathname 同样保留编码（new URL().pathname 不自动解码），可直接命中。
+ * 适配 WebDAV 上传——客户端写入时对路径做 URL 编码，数据库 path 存储编码格式，
+ * WebDAV 请求的 pathname 同样保留编码（new URL().pathname 不自动解码），可直接命中。
+ * 同时修复斜杠兼容性：数据库存 /path，请求 /path/ 时也能命中。
  *
  * 策略2（按 name+parentId 层级递归）：
- *   适配非 WebDAV 上传——数据库 name/path 存储原始中文，但 WebDAV 客户端请求路径
- *   中的中文会被编码为 %XX 格式，需对每段 decode 后才能匹配；同时保留原始值以兼容
- *   WebDAV 上传的编码名（策略1未命中时的兜底）。
+ * 适配非 WebDAV 上传——数据库 name/path 存储原始中文，但 WebDAV 客户端请求路径
+ * 中的中文会被编码为 %XX 格式，需对每段 decode 后才能匹配；同时保留原始值以兼容
+ * WebDAV 上传的编码名（策略1未命中时的兜底）。
  */
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
   // 策略1：直接精确匹配 path 字段（命中 WebDAV 上传的编码路径）
-  const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
+  const normalized = normalizePath(path);
 
   console.log(`[findFileByPath] input="${path}" normalized="${normalized}"`);
 
+  // 修复：同时尝试 normalized 和 normalized + '/'，解决数据库存储不一致导致的 404
   let file = await db
     .select()
     .from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
+    .where(
+      and(
+        eq(files.userId, userId),
+        or(eq(files.path, normalized), eq(files.path, normalized + '/')),
+        isNull(files.deletedAt)
+      )
+    )
     .get();
-
-  if (!file) {
-    file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
-      .get();
-  }
 
   if (file) {
     console.log(`[findFileByPath] strategy1 HIT: id="${file.id}" name="${file.name}" path="${file.path}" isFolder=${file.isFolder}`);
@@ -399,7 +408,6 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   console.log(`[findFileByPath] strategy1 MISS, trying strategy2`);
 
   // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
-  // WebDAV 请求路径中中文被编码为 %XX，需要 decode 后才能匹配数据库中的中文名称
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length === 0) return undefined;
 
@@ -430,8 +438,6 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
       if (found) {
         console.log(`[findFileByPath] strategy2 HIT: namePart="${namePart}" id="${found.id}" path="${found.path}" isFolder=${found.isFolder}`);
         break;
-      } else {
-        console.log(`[findFileByPath] strategy2 MISS: namePart="${namePart}" parentId=${currentParentId}`);
       }
     }
 
@@ -486,8 +492,9 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
 
 async function handlePut(c: AppContext, userId: string, path: string) {
   const body = await c.req.arrayBuffer();
-  const fileName = path.split('/').pop() || 'untitled';
-  const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
+  const normalizedPath = normalizePath(path);
+  const fileName = normalizedPath.split('/').pop() || 'untitled';
+  const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
   const encKeyP = getEncryptionKey(c.env);
@@ -496,6 +503,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
+      // 递归创建父目录
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
       let currentPath = '';
@@ -537,7 +545,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     }
   }
 
-  const existingFile = await findFileByPath(db, userId, path);
+  const existingFile = await findFileByPath(db, userId, normalizedPath);
 
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
@@ -582,7 +590,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       userId,
       parentId,
       name: fileName,
-      path,
+      path: normalizedPath,
       type: 'file',
       size: body.byteLength,
       r2Key,
@@ -609,25 +617,23 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 }
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
-  const folderName = path.split('/').pop() || 'untitled';
-  const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
+  const normalizedPath = normalizePath(path);
+  const folderName = normalizedPath.split('/').pop() || 'untitled';
+  const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
-  console.log(`[MKCOL] path="${path}" folderName="${folderName}" parentPath="${parentPath}"`);
+  console.log(`[MKCOL] path="${path}" normalized="${normalizedPath}" parentPath="${parentPath}"`);
 
   const db = getDb(c.env.DB);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
-    console.log(`[MKCOL] parentFolder:`, JSON.stringify(parentFolder ? { id: parentFolder.id, name: parentFolder.name, path: parentFolder.path } : null));
+    console.log(`[MKCOL] parentFolder lookup:`, JSON.stringify(parentFolder ? { id: parentFolder.id, name: parentFolder.name } : null));
     if (!parentFolder) return new Response('Conflict: parent not found', { status: 409, headers: DAV_BASE_HEADERS });
     parentId = parentFolder.id;
   }
 
-  const normalizedPath = path.endsWith('/') ? path : path + '/';
-
   const existing = await findFileByPath(db, userId, normalizedPath);
-  console.log(`[MKCOL] existing check "${normalizedPath}":`, existing ? `found id=${existing.id}` : 'not found');
   if (existing) return new Response('Method Not Allowed: already exists', { status: 405, headers: DAV_BASE_HEADERS });
 
   const folderId = crypto.randomUUID();
@@ -688,7 +694,7 @@ async function handleMove(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
-  const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  const destPath = normalizePath(new URL(destination).pathname.replace(/^\/dav/, '') || '/');
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
@@ -715,7 +721,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
-  const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  const destPath = normalizePath(new URL(destination).pathname.replace(/^\/dav/, '') || '/');
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
