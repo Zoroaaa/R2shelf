@@ -569,7 +569,11 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const mimeType = c.req.header('Content-Type') || 'application/octet-stream';
   const r2Key = `files/${userId}/${fileId}/${fileName}`;
 
+  console.log('[WebDAV PUT] 准备存储:', { fileId, r2Key, mimeType, isUpdate: !!existingFile });
+
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
+
+  console.log('[WebDAV PUT] 存储配置:', { hasBucket: !!bucketCfgP, bucketId: bucketCfgP?.id, hasR2: !!c.env.FILES });
 
   if (!existingFile) {
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
@@ -583,10 +587,15 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   }
 
   if (bucketCfgP) {
+    console.log('[WebDAV PUT] 开始 S3 上传:', { r2Key, bodySize: body.byteLength });
     await s3Put(bucketCfgP, r2Key, body, mimeType, { userId, originalName: fileName });
+    console.log('[WebDAV PUT] S3 上传完成');
   } else if (c.env.FILES) {
+    console.log('[WebDAV PUT] 开始 R2 上传:', { r2Key, bodySize: body.byteLength });
     await c.env.FILES.put(r2Key, body, { httpMetadata: { contentType: mimeType } });
+    console.log('[WebDAV PUT] R2 上传完成');
   } else {
+    console.log('[WebDAV PUT] 错误: 无存储配置');
     return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
   }
 
