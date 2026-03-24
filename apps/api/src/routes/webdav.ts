@@ -39,7 +39,6 @@ type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 const DAV_PREFIX = '/dav';
 
 // 所有响应（包括 401）都需要携带的 DAV 基础头
-// Windows Mini-Redirector 会在 401 响应上二次确认 DAV 头，缺失则报"文件夹无效"
 const DAV_BASE_HEADERS = {
   DAV: '1, 2',
   'MS-Author-Via': 'DAV',
@@ -69,7 +68,6 @@ app.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Basic ')) {
-    // 修复：401 必须携带 DAV 头，Windows Mini-Redirector 依此判断服务器是否支持 WebDAV
     return new Response('Unauthorized', {
       status: 401,
       headers: {
@@ -117,7 +115,6 @@ app.use('*', async (c, next) => {
 app.all('/*', async (c) => {
   const method = c.req.method.toUpperCase();
   const userId = c.get('userId')!;
-  // Strip /dav prefix to get the logical path
   const rawPath = new URL(c.req.url).pathname;
   const path = rawPath.replace(/^\/dav/, '') || '/';
 
@@ -140,7 +137,6 @@ app.all('/*', async (c) => {
     case 'LOCK':
       return handleLock(c, rawPath);
     case 'UNLOCK':
-      // UNLOCK：无状态实现，直接返回成功
       return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
     case 'PROPPATCH':
       return handleProppatch(c, rawPath);
@@ -169,11 +165,6 @@ function escapeXml(str: string): string {
 type FileRow = typeof files.$inferSelect;
 type FolderCache = Map<string, { name: string; parentId: string | null }>;
 
-/**
- * 构建请求级文件夹缓存（id → {name, parentId}）。
- * 每次请求独立构建，避免模块级共享 Map 在 Cloudflare Workers 并发请求间互相污染
- * （原实现用全局 Map + clearPathCache，并发时会出现缓存被其他请求清空导致路径截断的问题）。
- */
 async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): Promise<FolderCache> {
   const cache: FolderCache = new Map();
   const allFolders = await db
@@ -188,7 +179,6 @@ async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): P
   return cache;
 }
 
-// WebDAV 上传的 name 字段存储 URL 编码格式，displayname 输出时 decode 为可读中文
 function decodeName(name: string): string {
   try {
     return decodeURIComponent(name);
@@ -197,7 +187,6 @@ function decodeName(name: string): string {
   }
 }
 
-// findFileByPath 策略2中对路径分段安全 decode，用于匹配非 WebDAV 上传的原始中文 name
 function safeDecodeURIComponent(s: string): string {
   try {
     return decodeURIComponent(s);
@@ -206,8 +195,6 @@ function safeDecodeURIComponent(s: string): string {
   }
 }
 
-// 将路径各段统一 encode：先 decode（兼容已编码的 WebDAV name），再 encode，
-// 确保最终 href 格式统一为 URL 编码，与客户端请求路径格式一致。
 function encodePathSegments(path: string): string {
   return path
     .split('/')
@@ -216,9 +203,6 @@ function encodePathSegments(path: string): string {
 }
 
 function buildLogicalPathFromCache(cache: FolderCache, parentId: string | null, fileName: string): string {
-  // 使用数据库原始 name 拼接路径（不 decode），保持与数据库 path 字段一致的格式，
-  // 确保 href 与客户端下次请求的路径匹配（策略1可直接命中）。
-  // displayname 的 decode 在 buildPropfindXML 中单独处理。
   if (!parentId) {
     return `/${fileName}`;
   }
@@ -246,26 +230,13 @@ function buildItemsWithLogicalPaths(cache: FolderCache, items: FileRow[]): FileR
   });
 }
 
-/**
- * 构建 PROPFIND 响应 XML。
- *
- * @param items   当前目录下的文件/文件夹列表（path 字段已由 buildItemsWithLogicalPaths 重建为逻辑路径）
- * @param rawPath 原始请求路径（含 /dav 前缀），用于根集合条目的 <href> 精确匹配
- * @param isRoot  是否渲染根集合条目（自身 response 节点）
- *
- * 注意：
- * - 根节点 <href> 使用 rawPath 而非构造值，确保与客户端请求路径精确匹配（Windows 严格校验）
- * - 子项 <href> = DAV_PREFIX + 逻辑路径（由 buildLogicalPathFromCache 从 parentId 链递归构建）
- * - displayname 对 WebDAV 上传的编码文件名做 decode，统一展示为可读格式
- */
 function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
-    const rootHref = rawPath;
     responses.push(`
   <response>
-    <href>${escapeXml(rootHref)}</href>
+    <href>${escapeXml(rawPath)}</href>
     <propstat>
       <prop>
         <displayname></displayname>
@@ -283,8 +254,6 @@ function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = f
     if (!logicalPath.startsWith('/')) logicalPath = '/' + logicalPath;
     if (file.isFolder && !logicalPath.endsWith('/')) logicalPath += '/';
 
-    // 对路径各段统一 encode，与 rawPath（自身节点 href）格式保持一致，
-    // 避免客户端因编码不一致把自身节点和子项当成两个不同路径
     const href = DAV_PREFIX + encodePathSegments(logicalPath);
 
     responses.push(`
@@ -312,7 +281,6 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
 
-  // 构建请求级局部缓存，每次请求独立，避免并发请求间共享状态互相污染
   const cache = await buildFolderCache(db, userId);
 
   const xmlHeaders = {
@@ -327,11 +295,9 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
     parentCondition = isNull(files.parentId);
   } else {
     resolvedParent = await findFileByPath(db, userId, path);
-    console.log(`[PROPFIND] path="${path}" resolvedParent:`, JSON.stringify(resolvedParent ? { id: resolvedParent.id, name: resolvedParent.name, path: resolvedParent.path } : null));
     if (resolvedParent) {
       parentCondition = eq(files.parentId, resolvedParent.id);
     } else {
-      // 路径不存在：返回 404，让 WebDAV 客户端知道目录不存在
       return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
     }
   }
@@ -368,26 +334,10 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   });
 }
 
-/**
- * 按逻辑路径查找文件或文件夹，兼容两种上传方式的存储格式：
- *
- * 策略1（直接匹配 path 字段）：
- * 适配 WebDAV 上传——客户端写入时对路径做 URL 编码，数据库 path 存储编码格式，
- * WebDAV 请求的 pathname 同样保留编码（new URL().pathname 不自动解码），可直接命中。
- * 同时修复斜杠兼容性：数据库存 /path，请求 /path/ 时也能命中。
- *
- * 策略2（按 name+parentId 层级递归）：
- * 适配非 WebDAV 上传——数据库 name/path 存储原始中文，但 WebDAV 客户端请求路径
- * 中的中文会被编码为 %XX 格式，需对每段 decode 后才能匹配；同时保留原始值以兼容
- * WebDAV 上传的编码名（策略1未命中时的兜底）。
- */
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
-  // 策略1：直接精确匹配 path 字段（命中 WebDAV 上传的编码路径）
   const normalized = normalizePath(path);
 
-  console.log(`[findFileByPath] input="${path}" normalized="${normalized}"`);
-
-  // 修复：同时尝试 normalized 和 normalized + '/'，解决数据库存储不一致导致的 404
+  // 策略1：直接精确匹配 path 字段
   let file = await db
     .select()
     .from(files)
@@ -400,14 +350,9 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
     )
     .get();
 
-  if (file) {
-    console.log(`[findFileByPath] strategy1 HIT: id="${file.id}" name="${file.name}" path="${file.path}" isFolder=${file.isFolder}`);
-    return file;
-  }
+  if (file) return file;
 
-  console.log(`[findFileByPath] strategy1 MISS, trying strategy2`);
-
-  // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
+  // 策略2：按名称层级递归定位
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length === 0) return undefined;
 
@@ -415,11 +360,8 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   let currentFile: File | undefined;
 
   for (const part of parts) {
-    // 同时尝试原始值（匹配 WebDAV 上传的编码名）和 decoded 值（匹配非 WebDAV 上传的中文名）
     const decodedPart = safeDecodeURIComponent(part);
     const nameCandidates = Array.from(new Set([part, decodedPart]));
-
-    console.log(`[findFileByPath] strategy2 part="${part}" decoded="${decodedPart}" parentId=${currentParentId}`);
 
     let found: File | undefined;
     for (const namePart of nameCandidates) {
@@ -435,16 +377,10 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
           )
         )
         .get();
-      if (found) {
-        console.log(`[findFileByPath] strategy2 HIT: namePart="${namePart}" id="${found.id}" path="${found.path}" isFolder=${found.isFolder}`);
-        break;
-      }
+      if (found) break;
     }
 
-    if (!found) {
-      console.log(`[findFileByPath] strategy2 DEAD END at part="${part}"`);
-      return undefined;
-    }
+    if (!found) return undefined;
     currentFile = found;
     currentParentId = currentFile.id;
   }
@@ -503,7 +439,6 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
-      // 递归创建父目录
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
       let currentPath = '';
@@ -621,14 +556,11 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
   const folderName = normalizedPath.split('/').pop() || 'untitled';
   const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
-  console.log(`[MKCOL] path="${path}" normalized="${normalizedPath}" parentPath="${parentPath}"`);
-
   const db = getDb(c.env.DB);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
-    console.log(`[MKCOL] parentFolder lookup:`, JSON.stringify(parentFolder ? { id: parentFolder.id, name: parentFolder.name } : null));
     if (!parentFolder) return new Response('Conflict: parent not found', { status: 409, headers: DAV_BASE_HEADERS });
     parentId = parentFolder.id;
   }
@@ -786,12 +718,6 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
 
-/**
- * LOCK 处理器
- *
- * Windows 资源管理器和 WinSCP 在写操作前会先发 LOCK 请求。
- * 无状态实现：每次返回新 token，不持久化。单用户场景完全够用。
- */
 function handleLock(c: AppContext, rawPath: string) {
   const token = `urn:uuid:${crypto.randomUUID()}`;
 
@@ -820,11 +746,6 @@ function handleLock(c: AppContext, rawPath: string) {
   });
 }
 
-/**
- * PROPPATCH 处理器
- *
- * OSSshelf 属性均为只读，返回标准 403 响应防止客户端因无响应而挂起。
- */
 function handleProppatch(c: AppContext, rawPath: string) {
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <multistatus xmlns="DAV:">
