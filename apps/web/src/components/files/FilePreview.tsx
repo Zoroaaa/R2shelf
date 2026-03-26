@@ -372,7 +372,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     file.mimeType === 'application/msword';
   const isExcel =
     file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    file.mimeType === 'application/vnd.ms-excel';
+    file.mimeType === 'application/vnd.ms-excel' ||
+    file.mimeType === 'text/csv';
+  const isCsv = file.mimeType === 'text/csv' || file.name.endsWith('.csv');
   const isPpt =
     file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     file.mimeType === 'application/vnd.ms-powerpoint';
