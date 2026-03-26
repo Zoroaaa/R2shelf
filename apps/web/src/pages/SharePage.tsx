@@ -50,14 +50,14 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
         <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
           <HardDrive className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="font-semibold text-sm">OSSshelf</span>
+        <span className="font-semibold text-sm">赛智科技</span>
         <span className="text-muted-foreground text-sm ml-1">· {title}</span>
       </header>
       <main className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-2xl space-y-4">{children}</div>
       </main>
       <footer className="border-t px-6 py-3 text-center text-xs text-muted-foreground">
-        Powered by OSSshelf · 多厂商 OSS 文件管理系统
+        Powered by 赛智科技 ·  文件管理系统
       </footer>
     </div>
   );
