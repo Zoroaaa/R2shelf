@@ -68,7 +68,7 @@ app.use(
       'GET',
       'POST',
       'PUT',
-      'PATCH',
+      'PATCH'，
       'DELETE',
       'OPTIONS',
       'PROPFIND',
@@ -83,7 +83,7 @@ app.use(
     allowHeaders: [
       'Content-Type',
       'Authorization',
-      'Depth',
+      'Depth'，
       'Destination',
       'X-Requested-With',
       'Accept',
@@ -105,10 +105,11 @@ app.use(
     crossOriginResourcePolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
+    xFrameOptions: false,
   })
 );
 
-app.use('*', errorHandler);
+app。use('*', errorHandler);
 
 app.get('/', (c) => {
   return c.json({
