@@ -859,7 +859,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               {textContent !== null ? (
                 <pre className="p-4 m-0 leading-relaxed">
                   <code
-                    className={`language-${detectedLanguage} hljs text-gray-800 dark:text-gray-200`}
+                    className={`language-${detectedLanguage} hljs`}
                     dangerouslySetInnerHTML={{ __html: highlightedCode || textContent }}
                   />
                 </pre>
