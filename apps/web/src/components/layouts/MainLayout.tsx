@@ -152,7 +152,7 @@ export default function MainLayout() {
           <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
             <HardDrive className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
-          <span className="font-bold text-sm">OSSshelf</span>
+          <span className="font-bold text-sm">赛智科技</span>
         </div>
 
         <div className="flex items-center gap-2">
