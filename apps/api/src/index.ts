@@ -68,7 +68,7 @@ app.use(
       'GET',
       'POST',
       'PUT',
-      'PATCH'，
+      'PATCH',
       'DELETE',
       'OPTIONS',
       'PROPFIND',
@@ -83,7 +83,7 @@ app.use(
     allowHeaders: [
       'Content-Type',
       'Authorization',
-      'Depth'，
+      'Depth',
       'Destination',
       'X-Requested-With',
       'Accept',
@@ -109,7 +109,8 @@ app.use(
   })
 );
 
-app。use('*', errorHandler);
+// 修复：中文句号 → 英文点
+app.use('*', errorHandler);
 
 app.get('/', (c) => {
   return c.json({
