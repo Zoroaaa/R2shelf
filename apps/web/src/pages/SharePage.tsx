@@ -139,7 +139,13 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
       mimeType === 'application/json' ||
       mimeType === 'application/xml' ||
       mimeType === 'application/javascript' ||
-      mimeType === 'application/typescript'
+      mimeType === 'application/typescript' ||
+      mimeType === 'application/msword' ||
+      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      mimeType === 'application/vnd.ms-excel' ||
+      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimeType === 'application/vnd.ms-powerpoint' ||
+      mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
     );
   };
 
