@@ -394,6 +394,19 @@ export function ShareFilePreview({
     return getLanguageFromExtension(file.name);
   }, [file.name]);
 
+  const getPreviewUrl = useCallback(() => {
+    if (isChildFile) {
+      if (isVideo || isAudio) {
+        return shareApi.childStreamUrl(shareId, file.id, password);
+      }
+      return shareApi.childPreviewUrl(shareId, file.id, password);
+    }
+    if (isVideo || isAudio) {
+      return shareApi.streamUrl(shareId, password);
+    }
+    return shareApi.previewUrl(shareId, password);
+  }, [isChildFile, isVideo, isAudio, shareId, file.id, password]);
+
   useEffect(() => {
     setLoadError(false);
     setTextContent(null);
@@ -435,19 +448,6 @@ export function ShareFilePreview({
 
     fetchTextContent();
   }, [shareId, file.id, password, isText, isMarkdown, canPreview, isChildFile, getPreviewUrl]);
-
-  const getPreviewUrl = useCallback(() => {
-    if (isChildFile) {
-      if (isVideo || isAudio) {
-        return shareApi.childStreamUrl(shareId, file.id, password);
-      }
-      return shareApi.childPreviewUrl(shareId, file.id, password);
-    }
-    if (isVideo || isAudio) {
-      return shareApi.streamUrl(shareId, password);
-    }
-    return shareApi.previewUrl(shareId, password);
-  }, [isChildFile, isVideo, isAudio, shareId, file.id, password]);
 
   const loadDocxPreview = useCallback(async () => {
     if (!isWord || !docxContainerRef.current) return;
