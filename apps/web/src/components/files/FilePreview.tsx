@@ -922,7 +922,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   ) : null}
                 </>
               ) : isPpt ? (
-                renderOfficeFallback('PowerPoint 暂不支持在线预览')
+                <iframe
+                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolvedUrl)}`}
+                  className="w-full h-full border-0"
+                  title={decodeFileName(file.name)}
+                  onError={() => setLoadError(true)}
+                />
               ) : (
                 renderOfficeFallback()
               )}
