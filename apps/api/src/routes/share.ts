@@ -276,7 +276,7 @@ app.get('/', authMiddleware, async (c) => {
       ...share,
       file: file
         ? { id: file.id, name: file.name, size: file.size, mimeType: file.mimeType, isFolder: file.isFolder }
-        : null，
+        : null,
     };
   });
 
