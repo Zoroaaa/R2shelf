@@ -44,18 +44,19 @@ app.use('*', prettyJSON());
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      const allowedOrigins = [
-        'https://ossshelf.neutronx.uk',
-        'https://ossshelf-avb.pages.dev',
-        'https://oss.lyks.eu.org',
-        'https://oss.wlycs.cn',
-        'https://ossapi.wlycs.cn',
+    origin: (origin, c) => {
+      // 从环境变量中读取允许的域名列表
+      const envAllowedOrigins = c.env.ALLOWED_ORIGINS?.split(',') || [];
+      
+      // 默认的本地开发域名
+      const defaultOrigins = [
         'http://localhost:3000',
         'http://localhost:5173',
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
       ];
+      
+      const allowedOrigins = [...envAllowedOrigins, ...defaultOrigins];
 
       if (allowedOrigins.includes(origin)) return origin;
       if (origin?.endsWith('.neutronx.uk')) return origin;
