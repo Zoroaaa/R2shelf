@@ -26,7 +26,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const MAX_PREVIEW_SIZE = 100 * 1024 * 1024;
 
-输入 AppEnv = { Bindings: Env; Variables: Variables };
+type AppEnv = { Bindings: Env; Variables: Variables };
 
 async function verifyTokenFromQuery(
   c: Context<AppEnv>
