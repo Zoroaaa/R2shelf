@@ -34,18 +34,18 @@ export interface TgFileInfo {
   fileSize: number;
 }
 
-// Telegram Bot API 单次上传上限（50MB）
+// Telegram Bot API 单次上传上限（20MB）
 // 超过此大小需改用 telegramChunked.ts 的分片上传机制（分成 ≤49MB 的块）
-export const TG_MAX_FILE_SIZE = 50 * 1024 * 1024;
+export const TG_MAX_FILE_SIZE = 19 * 1024 * 1024;
 
 // 触发分片上传的阈值（与 TG_CHUNK_SIZE 一致）
-export const TG_CHUNKED_THRESHOLD = 49 * 1024 * 1024;
+export const TG_CHUNKED_THRESHOLD = 19 * 1024 * 1024;
 
 // Worker 支持的分片上传最大总大小（500MB ≈ 10 块，约 30s 内完成）
 export const TG_MAX_CHUNKED_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB，Telegram Bot API 真实上限
 
 // 较大文件警告阈值（20MB）- 仍可上传但提示速度较慢
-export const TG_WARN_FILE_SIZE = 20 * 1024 * 1024;
+export const TG_WARN_FILE_SIZE = 19 * 1024 * 1024;
 
 function getApiBase(config: TelegramBotConfig): string {
   return (config.apiBase || 'https://api.telegram.org').replace(/\/$/, '');
