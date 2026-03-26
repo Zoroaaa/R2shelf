@@ -379,7 +379,9 @@ export function ShareFilePreview({
     mimeType === 'application/msword';
   const isExcel =
     mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    mimeType === 'application/vnd.ms-excel';
+    mimeType === 'application/vnd.ms-excel' ||
+    mimeType === 'text/csv';
+  const isCsv = mimeType === 'text/csv' || file.name.endsWith('.csv');
   const isPpt =
     mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     mimeType === 'application/vnd.ms-powerpoint';
@@ -419,12 +421,20 @@ export function ShareFilePreview({
           setTextContent(res.data.data.content);
         }
       } catch {
-        setLoadError(true);
+        // 如果API调用失败，尝试通过fetch获取并处理编码
+        try {
+          const response = await fetch(getPreviewUrl());
+          // 对于CSV文件，尝试使用UTF-8编码
+          const text = await response.text();
+          setTextContent(text);
+        } catch {
+          setLoadError(true);
+        }
       }
     };
 
     fetchTextContent();
-  }, [shareId, file.id, password, isText, isMarkdown, canPreview, isChildFile]);
+  }, [shareId, file.id, password, isText, isMarkdown, canPreview, isChildFile, getPreviewUrl]);
 
   const getPreviewUrl = useCallback(() => {
     if (isChildFile) {
