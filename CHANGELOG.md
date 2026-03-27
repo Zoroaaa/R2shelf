@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.4.0] - 2024-03-27
+
+### Added
+
+- 大幅强化文件预览功能
+- 预览大小限制从 10MB 提升至 30MB
+- 新增 EPUB 电子书预览（目录导航、翻页、键盘快捷键）
+- 新增字体文件预览（TTF/OTF/WOFF/WOFF2）
+- 新增 ZIP 压缩包内容列表预览（文件树、压缩统计）
+- CSV 表格增强预览（搜索、排序、分页）
+- PowerPoint 幻灯片本地预览
+- PDF 分页预览与缩放控制
+- Excel 多工作表切换与样式保留预览
+
+### Improved
+
+- 优化预览窗口大小控制（小/中/大/全屏）
+- 统一预览类型配置（previewTypes.ts）
+- 预览组件性能优化
+
 ## [v3.3.0] - 2024-03-24
 
 ### Added

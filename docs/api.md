@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.3.0
+**当前版本**: v3.4.0
 
 ---
 
@@ -1569,6 +1569,29 @@ Authorization: Bearer <token>
 
 路由文件: `apps/api/src/routes/preview.ts`
 
+### 支持的预览类型
+
+| 类型 | MIME 类型 / 扩展名 | 预览方式 |
+|------|-------------------|----------|
+| 图片 | image/* | 浏览器原生 `<img>` |
+| 视频 | video/* | 浏览器原生 `<video>` |
+| 音频 | audio/* | 浏览器原生 `<audio>` |
+| PDF | application/pdf | pdf.js 分页渲染 |
+| Markdown | text/markdown, .md | react-markdown + GFM + 数学公式 |
+| 代码 | text/*, .js/.ts/.py 等 | highlight.js 语法高亮 |
+| Word | application/msword, .docx | docx-preview 本地渲染 |
+| Excel | application/vnd.ms-excel, .xlsx | xlsx 库 + 样式保留 |
+| PowerPoint | application/vnd.ms-powerpoint, .pptx | pptx-preview 本地渲染 |
+| EPUB | application/epub+zip, .epub | epub.js 电子书阅读器 |
+| 字体 | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览 |
+| ZIP | application/zip | JSZip 文件列表预览 |
+| CSV | text/csv, .csv | PapaParse 表格视图 |
+
+### 预览大小限制
+
+- **最大预览文件大小**: 30MB（定义于 `apps/api/src/routes/preview.ts`）
+- 超过限制的文件将提示下载查看
+
 ### 获取预览信息
 
 ```http
@@ -1595,7 +1618,7 @@ Authorization: Bearer <token>
 }
 ```
 
-**previewType**: `image`, `video`, `audio`, `pdf`, `text`, `markdown`, `code`, `office`, `unknown`
+**previewType**: `image`, `video`, `audio`, `pdf`, `text`, `markdown`, `csv`, `code`, `word`, `excel`, `powerpoint`, `epub`, `font`, `archive`, `unknown`
 
 ### 获取原始内容
 
