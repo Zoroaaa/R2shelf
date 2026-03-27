@@ -54,6 +54,8 @@ import {
   ChevronRight,
   Folder,
   File,
+  Image as ImageIcon,
+  Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
@@ -79,6 +81,16 @@ interface PreviewInfo {
   language: string | null;
   extension: string;
   canPreview: boolean;
+}
+
+interface ZipTreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  compressedSize: number;
+  children: ZipTreeNode[];
+  level: number;
 }
 
 interface FilePreviewProps {
@@ -417,8 +429,17 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   const [csvData, setCsvData] = useState<string[][] | null>(null);
   const [csvLoading, setCsvLoading] = useState(false);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [csvSortColumn, setCsvSortColumn] = useState<number | null>(null);
+  const [csvSortAsc, setCsvSortAsc] = useState(true);
+  const [csvSearchTerm, setCsvSearchTerm] = useState('');
+  const [csvCurrentPage, setCsvCurrentPage] = useState(1);
+  const [csvPageSize, setCsvPageSize] = useState(50);
   const [zipContents, setZipContents] = useState<{ name: string; size: number; isDir: boolean }[]>([]);
   const [zipLoading, setZipLoading] = useState(false);
+  const [zipTree, setZipTree] = useState<ZipTreeNode[]>([]);
+  const [zipStats, setZipStats] = useState<{ totalFiles: number; totalDirs: number; totalSize: number; compressedSize: number } | null>(null);
   const [fontPreview, setFontPreview] = useState<{ name: string; preview: string } | null>(null);
   const [fontLoading, setFontLoading] = useState(false);
   const [epubLoading, setEpubLoading] = useState(false);
@@ -669,8 +690,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       const result = Papa.parse<string[]>(text, {
         skipEmptyLines: true,
       });
-      if (result.data) {
+      if (result.data && result.data.length > 0) {
+        const headers = result.data[0] || [];
+        const rows = result.data.slice(1);
+        setCsvHeaders(headers);
+        setCsvRows(rows);
         setCsvData(result.data);
+        setCsvCurrentPage(1);
       }
     } catch (err) {
       console.error('CSV preview error:', err);
@@ -679,6 +705,39 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       setCsvLoading(false);
     }
   }, [isCsv, resolvedUrl]);
+
+  const handleCsvSort = useCallback((columnIndex: number) => {
+    if (csvSortColumn === columnIndex) {
+      setCsvSortAsc(!csvSortAsc);
+    } else {
+      setCsvSortColumn(columnIndex);
+      setCsvSortAsc(true);
+    }
+  }, [csvSortColumn, csvSortAsc]);
+
+  const filteredCsvRows = useMemo(() => {
+    if (!csvSearchTerm) return csvRows;
+    return csvRows.filter(row =>
+      row.some(cell => cell.toLowerCase().includes(csvSearchTerm.toLowerCase()))
+    );
+  }, [csvRows, csvSearchTerm]);
+
+  const sortedCsvRows = useMemo(() => {
+    if (csvSortColumn === null) return filteredCsvRows;
+    return [...filteredCsvRows].sort((a, b) => {
+      const aVal = a[csvSortColumn] || '';
+      const bVal = b[csvSortColumn] || '';
+      const comparison = aVal.localeCompare(bVal, undefined, { numeric: true });
+      return csvSortAsc ? comparison : -comparison;
+    });
+  }, [filteredCsvRows, csvSortColumn, csvSortAsc]);
+
+  const paginatedCsvRows = useMemo(() => {
+    const start = (csvCurrentPage - 1) * csvPageSize;
+    return sortedCsvRows.slice(start, start + csvPageSize);
+  }, [sortedCsvRows, csvCurrentPage, csvPageSize]);
+
+  const totalCsvPages = Math.ceil(sortedCsvRows.length / csvPageSize);
 
   const loadZipPreview = useCallback(async () => {
     if (!isZip || !resolvedUrl) return;
@@ -691,19 +750,46 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       }
       const arrayBuffer = await response.arrayBuffer();
       const zip = await JSZip.loadAsync(arrayBuffer);
+
       const contents: { name: string; size: number; isDir: boolean }[] = [];
+      let totalSize = 0;
+      let compressedSize = 0;
+      let fileCount = 0;
+      let dirCount = 0;
+
       zip.forEach((relativePath, zipEntry) => {
+        const entryData = (zipEntry as any)._data;
+        const uncompressedSize = entryData?.uncompressedSize || 0;
+        const compressedSz = entryData?.compressedSize || 0;
         contents.push({
           name: relativePath,
-          size: zipEntry.dir ? 0 : 0,
+          size: zipEntry.dir ? 0 : uncompressedSize,
           isDir: zipEntry.dir,
         });
+        if (!zipEntry.dir) {
+          totalSize += uncompressedSize;
+          compressedSize += compressedSz;
+          fileCount++;
+        } else {
+          dirCount++;
+        }
       });
+
       contents.sort((a, b) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
+
       setZipContents(contents);
+      setZipStats({
+        totalFiles: fileCount,
+        totalDirs: dirCount,
+        totalSize,
+        compressedSize,
+      });
+
+      const tree = buildZipTree(zip);
+      setZipTree(tree);
     } catch (err) {
       console.error('ZIP preview error:', err);
       setLoadError(true);
@@ -711,6 +797,88 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       setZipLoading(false);
     }
   }, [isZip, resolvedUrl]);
+
+  const buildZipTree = (zip: JSZip): ZipTreeNode[] => {
+    const root: ZipTreeNode[] = [];
+    const map = new Map<string, ZipTreeNode>();
+
+    zip.forEach((relativePath, zipEntry) => {
+      const parts = relativePath.split('/').filter(Boolean);
+      let currentPath = '';
+      let currentLevel = root;
+      const entryData = (zipEntry as any)._data;
+
+      parts.forEach((part, index) => {
+        currentPath += (currentPath ? '/' : '') + part;
+        const isLast = index === parts.length - 1;
+        const isDir = !isLast || zipEntry.dir;
+
+        if (!map.has(currentPath)) {
+          const node: ZipTreeNode = {
+            name: part,
+            path: currentPath,
+            isDir,
+            size: isDir ? 0 : (entryData?.uncompressedSize || 0),
+            compressedSize: isDir ? 0 : (entryData?.compressedSize || 0),
+            children: [],
+            level: index,
+          };
+          map.set(currentPath, node);
+          currentLevel.push(node);
+          currentLevel = node.children;
+        } else {
+          currentLevel = map.get(currentPath)!.children;
+        }
+      });
+    });
+
+    return root;
+  };
+
+  const renderZipTreeNode = (node: ZipTreeNode, depth: number = 0): React.ReactNode => {
+    const getFileIcon = (name: string, isDir: boolean) => {
+      if (isDir) return <Folder className="h-4 w-4 text-amber-500 flex-shrink-0" />;
+      const ext = name.split('.').pop()?.toLowerCase();
+      switch (ext) {
+        case 'pdf':
+          return <FileText className="h-4 w-4 text-red-500 flex-shrink-0" />;
+        case 'doc':
+        case 'docx':
+          return <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />;
+        case 'xls':
+        case 'xlsx':
+          return <FileText className="h-4 w-4 text-green-500 flex-shrink-0" />;
+        case 'jpg':
+        case 'jpeg':
+        case 'png':
+        case 'gif':
+        case 'webp':
+          return <ImageIcon className="h-4 w-4 text-purple-500 flex-shrink-0" />;
+        case 'zip':
+        case 'rar':
+        case '7z':
+          return <Archive className="h-4 w-4 text-yellow-600 flex-shrink-0" />;
+        default:
+          return <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
+      }
+    };
+
+    return (
+      <div key={node.path}>
+        <div
+          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-default"
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        >
+          {getFileIcon(node.name, node.isDir)}
+          <span className="flex-1 truncate text-sm">{node.name}</span>
+          {!node.isDir && (
+            <span className="text-xs text-muted-foreground">{formatBytes(node.size)}</span>
+          )}
+        </div>
+        {node.children.map(child => renderZipTreeNode(child, depth + 1))}
+      </div>
+    );
+  };
 
   const loadFontPreview = useCallback(async () => {
     if (!isFont || !resolvedUrl) return;
@@ -857,7 +1025,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [pdfCurrentPage, pdfTotalPages, renderPdfPage]);
 
   const loadPptPreview = useCallback(async () => {
-    if (!isPpt || !resolvedUrl || !pptxContainerRef.current) return;
+    if (!isPpt || !resolvedUrl) return;
 
     setPptLoading(true);
     try {
@@ -867,8 +1035,14 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       }
       const arrayBuffer = await response.arrayBuffer();
 
+      const container = pptxContainerRef.current;
+      if (!container) {
+        setPptLoading(false);
+        return;
+      }
+
       if (!pptxViewerRef.current) {
-        pptxViewerRef.current = initPptxPreview(pptxContainerRef.current, {
+        pptxViewerRef.current = initPptxPreview(container, {
           width: 960,
           height: 540,
         });
@@ -958,8 +1132,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   useEffect(() => {
     if (isPpt && resolvedUrl && !pptUseOnlineViewer) {
-      loadPptPreview();
+      const timer = setTimeout(() => {
+        loadPptPreview();
+      }, 50);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [isPpt, resolvedUrl, loadPptPreview, pptUseOnlineViewer]);
 
   useEffect(() => {
@@ -1474,25 +1652,96 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   <div className="text-muted-foreground text-sm">正在加载表格...</div>
                 </div>
               )}
-              {csvData ? (
-                <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4">
-                  <table className="w-full border-collapse text-sm" style={{ fontSize: `${zoomLevel}%` }}>
-                    <tbody>
-                      {csvData.map((row, rowIndex) => (
-                        <tr key={rowIndex} className={rowIndex === 0 ? 'bg-muted/50 font-medium' : ''}>
-                          {row.map((cell, cellIndex) => {
-                            const Tag = rowIndex === 0 ? 'th' : 'td';
-                            return (
-                              <Tag key={cellIndex} className="border border-border px-3 py-2 text-left">
-                                {cell}
-                              </Tag>
-                            );
-                          })}
+              {csvHeaders.length > 0 ? (
+                <>
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                    <span className="text-sm text-muted-foreground">
+                      CSV 表格 - {csvRows.length} 行数据
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="搜索..."
+                        value={csvSearchTerm}
+                        onChange={(e) => {
+                          setCsvSearchTerm(e.target.value);
+                          setCsvCurrentPage(1);
+                        }}
+                        className="h-7 w-40 px-2 text-xs border rounded bg-background"
+                      />
+                      <select
+                        value={csvPageSize}
+                        onChange={(e) => {
+                          setCsvPageSize(Number(e.target.value));
+                          setCsvCurrentPage(1);
+                        }}
+                        className="h-7 px-2 text-xs border rounded bg-background"
+                      >
+                        <option value={20}>20行/页</option>
+                        <option value={50}>50行/页</option>
+                        <option value={100}>100行/页</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto bg-white dark:bg-gray-900">
+                    <table className="w-full border-collapse text-sm">
+                      <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
+                        <tr>
+                          {csvHeaders.map((header, index) => (
+                            <th
+                              key={index}
+                              onClick={() => handleCsvSort(index)}
+                              className="border border-border px-3 py-2 text-left cursor-pointer hover:bg-muted/50 select-none"
+                            >
+                              <div className="flex items-center gap-1">
+                                {header}
+                                {csvSortColumn === index && (
+                                  <span className="text-xs">{csvSortAsc ? '↑' : '↓'}</span>
+                                )}
+                              </div>
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {paginatedCsvRows.map((row, rowIndex) => (
+                          <tr key={rowIndex} className="hover:bg-muted/30">
+                            {row.map((cell, cellIndex) => (
+                              <td key={cellIndex} className="border border-border px-3 py-2">
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {totalCsvPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 px-4 py-2 border-t bg-muted/30">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCsvCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={csvCurrentPage <= 1}
+                        className="h-7"
+                      >
+                        上一页
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {csvCurrentPage} / {totalCsvPages}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCsvCurrentPage(p => Math.min(totalCsvPages, p + 1))}
+                        disabled={csvCurrentPage >= totalCsvPages}
+                        className="h-7"
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
@@ -1506,23 +1755,30 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   <div className="text-muted-foreground text-sm">正在读取压缩包...</div>
                 </div>
               )}
-              {zipContents.length > 0 ? (
-                <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4">
-                  <div className="text-sm mb-4 text-muted-foreground">共 {zipContents.length} 个文件/文件夹</div>
-                  <div className="space-y-1">
-                    {zipContents.map((item, index) => (
-                      <div key={index} className="flex items-center gap-2 px-3 py-2 rounded hover:bg-muted/50">
-                        {item.isDir ? (
-                          <Folder className="h-4 w-4 text-amber-500" />
-                        ) : (
-                          <File className="h-4 w-4 text-muted-foreground" />
+              {zipTree.length > 0 ? (
+                <>
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                    <span className="text-sm text-muted-foreground">
+                      压缩包内容
+                    </span>
+                    {zipStats && (
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>{zipStats.totalFiles} 个文件</span>
+                        <span>{zipStats.totalDirs} 个文件夹</span>
+                        <span>原始: {formatBytes(zipStats.totalSize)}</span>
+                        <span>压缩: {formatBytes(zipStats.compressedSize)}</span>
+                        {zipStats.totalSize > 0 && (
+                          <span className="text-green-600">
+                            压缩率: {Math.round((1 - zipStats.compressedSize / zipStats.totalSize) * 100)}%
+                          </span>
                         )}
-                        <span className="flex-1 truncate text-sm">{item.name}</span>
-                        {!item.isDir && <span className="text-xs text-muted-foreground">{formatBytes(item.size)}</span>}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
+                  <div className="flex-1 overflow-auto bg-white dark:bg-gray-900 p-2">
+                    {zipTree.map(node => renderZipTreeNode(node))}
+                  </div>
+                </>
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>

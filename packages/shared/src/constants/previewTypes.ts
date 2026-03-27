@@ -66,7 +66,11 @@ export const OFFICE_MIME_TYPES = {
 } as const;
 
 /** EPUB 电子书 MIME 类型 */
-export const EPUB_MIME_TYPES = ['application/epub+zip'] as const;
+export const EPUB_MIME_TYPES = [
+  'application/epub+zip',
+  'application/epub',
+  'application/x-epub+zip',
+] as const;
 
 /** 字体文件 MIME 类型 */
 export const FONT_MIME_TYPES = ['font/ttf', 'font/otf', 'font/woff', 'font/woff2'] as const;
@@ -168,7 +172,10 @@ export function isPreviewableMimeType(mimeType: string | null | undefined, fileN
   if (ALL_OFFICE_MIME_TYPES.includes(mimeType as (typeof ALL_OFFICE_MIME_TYPES)[number])) return true;
   if (EPUB_MIME_TYPES.includes(mimeType as (typeof EPUB_MIME_TYPES)[number])) return true;
   if (FONT_MIME_TYPES.includes(mimeType as (typeof FONT_MIME_TYPES)[number])) return true;
-  if (ARCHIVE_PREVIEW_MIME_TYPES.includes(mimeType as (typeof ARCHIVE_PREVIEW_MIME_TYPES)[number])) return true;
+  if (ARCHIVE_PREVIEW_MIME_TYPES.includes(mimeType as (typeof ARCHIVE_PREVIEW_MIME_TYPES)[number])) {
+    if (fileName && fileName.toLowerCase().endsWith('.epub')) return true;
+    return true;
+  }
 
   return false;
 }
@@ -198,7 +205,10 @@ export function getPreviewType(mimeType: string | null | undefined, fileName: st
 
   if (EPUB_MIME_TYPES.includes(mimeType as (typeof EPUB_MIME_TYPES)[number])) return 'epub';
   if (FONT_MIME_TYPES.includes(mimeType as (typeof FONT_MIME_TYPES)[number])) return 'font';
-  if (ARCHIVE_PREVIEW_MIME_TYPES.includes(mimeType as (typeof ARCHIVE_PREVIEW_MIME_TYPES)[number])) return 'archive';
+  if (ARCHIVE_PREVIEW_MIME_TYPES.includes(mimeType as (typeof ARCHIVE_PREVIEW_MIME_TYPES)[number])) {
+    if (fileName.toLowerCase().endsWith('.epub')) return 'epub';
+    return 'archive';
+  }
 
   const extType = getPreviewTypeByExtension(fileName);
   if (extType) return extType;
