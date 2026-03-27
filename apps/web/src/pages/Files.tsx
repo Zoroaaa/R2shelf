@@ -367,27 +367,24 @@ export default function Files() {
   const handleDownload = useCallback(
     async (file: FileItem) => {
       try {
-        const { url, fileName } = await getPresignedDownloadUrl(file.id);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName || file.name;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        const result = await getPresignedDownloadUrl(file.id);
+        const { url, fileName, useProxy } = result;
+
+        if (useProxy) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName || file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
       } catch {
         try {
           const downloadToken = token || useAuthStore.getState().token;
           const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
-          const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = file.name;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          window.open(downloadUrl, '_blank', 'noopener,noreferrer');
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }

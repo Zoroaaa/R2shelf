@@ -27,6 +27,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { renderAsync } from 'docx-preview';
 import { init as initPptxPreview } from 'pptx-preview';
 import * as XLSX from 'xlsx';
+import * as pdfjsLib from 'pdfjs-dist';
+import ePub from 'epubjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -61,6 +63,8 @@ import { cn } from '@/utils';
 
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface PreviewInfo {
   id: string;
@@ -401,7 +405,6 @@ export function ShareFilePreview({
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
   const [officeLoading, setOfficeLoading] = useState(false);
   const [officeError, setOfficeError] = useState<string | null>(null);
-  const [excelLoading, setExcelLoading] = useState(false);
   const [excelWorkbook, setExcelWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [activeSheetName, setActiveSheetName] = useState<string | null>(null);
   const [excelHtml, setExcelHtml] = useState<string | null>(null);
@@ -409,6 +412,11 @@ export function ShareFilePreview({
   const docxContainerRef = useRef<HTMLDivElement>(null);
   const pptxContainerRef = useRef<HTMLDivElement>(null);
   const pptxViewerRef = useRef<ReturnType<typeof initPptxPreview> | null>(null);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
+  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const excelContainerRef = useRef<HTMLDivElement>(null);
+  const epubViewerRef = useRef<ePub.Book | null>(null);
+  const epubRenditionRef = useRef<ePub.Rendition | null>(null);
 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [windowSize, setWindowSize] = useState<WindowSize>('medium');
@@ -419,15 +427,20 @@ export function ShareFilePreview({
   const [zipLoading, setZipLoading] = useState(false);
   const [fontPreview, setFontPreview] = useState<{ name: string; preview: string } | null>(null);
   const [fontLoading, setFontLoading] = useState(false);
-  const [epubBook, setEpubBook] = useState<{ title: string; chapters: { href: string; label: string }[] } | null>(null);
-  const [epubContent, setEpubContent] = useState<string>('');
   const [epubLoading, setEpubLoading] = useState(false);
-  const [epubCurrentChapter, setEpubCurrentChapter] = useState(0);
+  const [epubCurrentPage, setEpubCurrentPage] = useState(0);
+  const [epubTotalPages, setEpubTotalPages] = useState(0);
+  const [epubToc, setEpubToc] = useState<{ href: string; label: string }[]>([]);
+  const [epubShowToc, setEpubShowToc] = useState(true);
   const [pptLoading, setPptLoading] = useState(false);
   const [pptUseOnlineViewer, setPptUseOnlineViewer] = useState(true);
   const [pptOnlineError, setPptOnlineError] = useState(false);
   const [officeUseOnlineViewer, setOfficeUseOnlineViewer] = useState(true);
   const [officeOnlineError, setOfficeOnlineError] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
+  const [pdfTotalPages, setPdfTotalPages] = useState(0);
+  const [excelLoading, setExcelLoading] = useState(false);
 
   const mimeType = file.mimeType;
   const isImage = mimeType?.startsWith('image/');
@@ -489,15 +502,20 @@ export function ShareFilePreview({
     setZipLoading(false);
     setFontPreview(null);
     setFontLoading(false);
-    setEpubBook(null);
-    setEpubContent('');
     setEpubLoading(false);
-    setEpubCurrentChapter(0);
+    setEpubCurrentPage(0);
+    setEpubTotalPages(0);
+    setEpubToc([]);
+    setEpubShowToc(true);
     setPptLoading(false);
     setPptUseOnlineViewer(true);
     setPptOnlineError(false);
     setOfficeUseOnlineViewer(true);
     setOfficeOnlineError(false);
+    setPdfLoading(false);
+    setPdfCurrentPage(1);
+    setPdfTotalPages(0);
+    setExcelLoading(false);
   }, [shareId, file.id, password]);
 
   useEffect(() => {
@@ -583,42 +601,6 @@ export function ShareFilePreview({
       setOfficeLoading(false);
     }
   }, [isWord, shareId, file.id, password, isChildFile, getPreviewUrl]);
-
-  const loadExcelPreview = useCallback(async () => {
-    if (!isExcel) return;
-
-    setExcelLoading(true);
-    try {
-      const response = await fetch(getPreviewUrl());
-      if (!response.ok) {
-        throw new Error(`文件加载失败: ${response.status}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, {
-        type: 'array',
-        cellStyles: true,
-        cellNF: true,
-        cellDates: true,
-      });
-      setExcelWorkbook(workbook);
-      const firstSheetName = workbook.SheetNames[0];
-      if (firstSheetName) {
-        setActiveSheetName(firstSheetName);
-        const worksheet = workbook.Sheets[firstSheetName];
-        if (worksheet) {
-          const { html } = renderExcelSheetWithStyles(worksheet, workbook);
-          setExcelHtml(html);
-        }
-      } else {
-        setLoadError(true);
-      }
-    } catch (err) {
-      console.error('Excel preview error:', err);
-      setLoadError(true);
-    } finally {
-      setExcelLoading(false);
-    }
-  }, [isExcel, shareId, file.id, password, isChildFile, getPreviewUrl]);
 
   const handleSheetChange = useCallback(
     (sheetName: string) => {
@@ -725,103 +707,151 @@ export function ShareFilePreview({
 
     setEpubLoading(true);
     try {
+      const book = ePub(getPreviewUrl());
+      epubViewerRef.current = book;
+
+      const rendition = book.renderTo('epub-viewer-share', {
+        width: '100%',
+        height: '100%',
+        spread: 'none',
+      });
+      epubRenditionRef.current = rendition;
+
+      await rendition.display();
+
+      const locations = await book.locations.generate(1024);
+      setEpubTotalPages(locations.length);
+
+      const navigation = await book.loaded.navigation;
+      const toc = navigation.toc.map((item: { href: string; label: string }) => ({
+        href: item.href,
+        label: item.label,
+      }));
+      setEpubToc(toc);
+
+      rendition.on('relocated', (location: { start: { index: number } }) => {
+        setEpubCurrentPage(location.start.index);
+      });
+
+      rendition.on('rendered', () => {
+        setEpubLoading(false);
+      });
+    } catch (err) {
+      console.error('EPUB preview error:', err);
+      setLoadError(true);
+      setEpubLoading(false);
+    }
+  }, [isEpub, getPreviewUrl]);
+
+  const epubPrevPage = useCallback(() => {
+    epubRenditionRef.current?.prev();
+  }, []);
+
+  const epubNextPage = useCallback(() => {
+    epubRenditionRef.current?.next();
+  }, []);
+
+  const epubGoTo = useCallback((href: string) => {
+    epubRenditionRef.current?.display(href);
+    setEpubShowToc(false);
+  }, []);
+
+  const loadPdfPreview = useCallback(async () => {
+    if (!isPdf || !pdfContainerRef.current) return;
+
+    setPdfLoading(true);
+    try {
       const response = await fetch(getPreviewUrl());
       if (!response.ok) {
         throw new Error(`文件加载失败: ${response.status}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      const zip = await JSZip.loadAsync(arrayBuffer);
 
-      const containerFile = zip.file('META-INF/container.xml');
-      const containerXml = containerFile ? await containerFile.async('string') : null;
-      if (!containerXml) {
-        throw new Error('无效的 EPUB 文件');
-      }
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      pdfDocRef.current = pdfDoc;
+      setPdfTotalPages(pdfDoc.numPages);
 
-      const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
-      if (!rootfileMatch || !rootfileMatch[1]) {
-        throw new Error('无法找到 EPUB 根文件');
-      }
-      const opfPath = rootfileMatch[1];
-      const opfFile = zip.file(opfPath);
-      const opfContent = opfFile ? await opfFile.async('string') : null;
-      if (!opfContent) {
-        throw new Error('无法读取 EPUB 内容');
-      }
-
-      const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
-      const title = titleMatch && titleMatch[1] ? titleMatch[1] : file.name;
-
-      const manifestMatches = opfContent.matchAll(
-        /<item[^>]*href="([^"]+)"[^>]*id="([^"]+)"[^>]*media-type="([^"]+)"[^>]*\/>/gi
-      );
-      const spineItemMatches = opfContent.matchAll(/<itemref[^>]*idref="([^"]+)"[^>]*\/>/gi);
-
-      const manifest: Record<string, { href: string; mediaType: string }> = {};
-      for (const match of manifestMatches) {
-        if (match[1] && match[2] && match[3]) {
-          manifest[match[2]] = { href: match[1], mediaType: match[3] };
-        }
-      }
-
-      const chapters: { href: string; label: string }[] = [];
-      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
-      for (const match of spineItemMatches) {
-        const idref = match[1];
-        if (idref && manifest[idref]) {
-          chapters.push({
-            href: opfDir + manifest[idref].href,
-            label: `第 ${chapters.length + 1} 章`,
-          });
-        }
-      }
-
-      setEpubBook({ title, chapters });
-
-      if (chapters.length > 0 && chapters[0]) {
-        const chapterFile = zip.file(chapters[0].href);
-        const chapterContent = chapterFile ? await chapterFile.async('string') : null;
-        if (chapterContent) {
-          setEpubContent(chapterContent);
-        }
-      }
+      await renderPdfPage(1);
     } catch (err) {
-      console.error('EPUB preview error:', err);
+      console.error('PDF preview error:', err);
       setLoadError(true);
     } finally {
-      setEpubLoading(false);
+      setPdfLoading(false);
     }
-  }, [isEpub, getPreviewUrl, file.name]);
+  }, [isPdf, getPreviewUrl]);
 
-  const loadEpubChapter = useCallback(
-    async (chapterIndex: number) => {
-      if (!epubBook || chapterIndex < 0 || chapterIndex >= epubBook.chapters.length) return;
+  const renderPdfPage = useCallback(async (pageNum: number) => {
+    if (!pdfDocRef.current || !pdfContainerRef.current) return;
 
-      setEpubLoading(true);
-      try {
-        const response = await fetch(getPreviewUrl());
-        if (!response.ok) {
-          throw new Error(`文件加载失败: ${response.status}`);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        const zip = await JSZip.loadAsync(arrayBuffer);
-        const chapter = epubBook.chapters[chapterIndex];
-        if (chapter) {
-          const chapterFile = zip.file(chapter.href);
-          const chapterContent = chapterFile ? await chapterFile.async('string') : null;
-          if (chapterContent) {
-            setEpubContent(chapterContent);
-            setEpubCurrentChapter(chapterIndex);
-          }
-        }
-      } catch (err) {
-        console.error('EPUB chapter load error:', err);
-      } finally {
-        setEpubLoading(false);
+    const page = await pdfDocRef.current.getPage(pageNum);
+    const scale = zoomLevel / 100;
+    const viewport = page.getViewport({ scale });
+
+    pdfContainerRef.current.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    canvas.className = 'mx-auto shadow-lg';
+    pdfContainerRef.current.appendChild(canvas);
+
+    await page.render({
+      canvasContext: context,
+      viewport,
+    } as any).promise;
+    setPdfCurrentPage(pageNum);
+  }, [zoomLevel]);
+
+  const pdfPrevPage = useCallback(() => {
+    if (pdfCurrentPage > 1) {
+      renderPdfPage(pdfCurrentPage - 1);
+    }
+  }, [pdfCurrentPage, renderPdfPage]);
+
+  const pdfNextPage = useCallback(() => {
+    if (pdfCurrentPage < pdfTotalPages) {
+      renderPdfPage(pdfCurrentPage + 1);
+    }
+  }, [pdfCurrentPage, pdfTotalPages, renderPdfPage]);
+
+  const loadExcelPreview = useCallback(async () => {
+    if (!isExcel || !excelContainerRef.current) return;
+
+    setExcelLoading(true);
+    try {
+      const response = await fetch(getPreviewUrl());
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
       }
-    },
-    [epubBook, getPreviewUrl]
-  );
+      const arrayBuffer = await response.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error('Excel 文件无工作表');
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      if (!worksheet) {
+        throw new Error('工作表不存在');
+      }
+      const html = XLSX.utils.sheet_to_html(worksheet, { editable: false });
+      excelContainerRef.current.innerHTML = html;
+      const table = excelContainerRef.current.querySelector('table');
+      if (table) {
+        table.className = 'w-full border-collapse text-sm';
+        table.querySelectorAll('td, th').forEach((cell) => {
+          cell.className = 'border border-border px-2 py-1 text-left';
+        });
+      }
+    } catch (err) {
+      console.error('Excel preview error:', err);
+      setLoadError(true);
+    } finally {
+      setExcelLoading(false);
+    }
+  }, [isExcel, getPreviewUrl]);
 
   const loadPptPreview = useCallback(async () => {
     if (!isPpt || !pptxContainerRef.current) return;
@@ -910,6 +940,18 @@ export function ShareFilePreview({
       loadEpubPreview();
     }
   }, [isEpub, loadEpubPreview]);
+
+  useEffect(() => {
+    if (isPdf) {
+      loadPdfPreview();
+    }
+  }, [isPdf, loadPdfPreview]);
+
+  useEffect(() => {
+    if (isExcel && !officeUseOnlineViewer) {
+      loadExcelPreview();
+    }
+  }, [isExcel, loadExcelPreview, officeUseOnlineViewer]);
 
   useEffect(() => {
     if (isPpt && !pptUseOnlineViewer) {
@@ -1128,8 +1170,29 @@ export function ShareFilePreview({
           ) : isPdf ? (
             <div className="w-full h-full flex flex-col bg-gray-100 dark:bg-gray-800">
               <div className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-gray-900 shadow-sm">
-                <span className="text-sm text-muted-foreground">PDF 文档</span>
+                <span className="text-sm text-muted-foreground">
+                  PDF 文档 {pdfTotalPages > 0 && `- 第 ${pdfCurrentPage}/${pdfTotalPages} 页`}
+                </span>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={pdfPrevPage}
+                    disabled={pdfCurrentPage <= 1}
+                    className="h-7 w-7 p-0"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={pdfNextPage}
+                    disabled={pdfCurrentPage >= pdfTotalPages}
+                    className="h-7 w-7 p-0"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <div className="w-px h-4 bg-border mx-1" />
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1149,30 +1212,16 @@ export function ShareFilePreview({
                   >
                     <ZoomIn className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleZoomReset}
-                    className="h-7 px-2 text-xs"
-                  >
-                    重置
-                  </Button>
                 </div>
               </div>
               <div className="flex-1 overflow-auto p-4">
-                <div className="flex justify-center">
-                  <iframe
-                    src={getPreviewUrl()}
-                    className="border-0 rounded-lg shadow-xl bg-white"
-                    style={{
-                      width: `${zoomLevel * 8}px`,
-                      height: `${zoomLevel * 11.3}px`,
-                      minHeight: '600px',
-                    }}
-                    title={decodeFileName(file.name)}
-                    onError={() => setLoadError(true)}
-                  />
-                </div>
+                {pdfLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground text-sm">正在加载 PDF...</div>
+                  </div>
+                ) : (
+                  <div ref={pdfContainerRef} className="flex flex-col items-center" />
+                )}
               </div>
             </div>
           ) : isMarkdown ? (
@@ -1315,7 +1364,7 @@ export function ShareFilePreview({
                   />
                 </>
               ) : isExcel ? (
-                <>
+                <div className="w-full h-full flex flex-col relative">
                   {excelLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
                       <div className="text-muted-foreground text-sm">正在加载表格...</div>
@@ -1337,14 +1386,13 @@ export function ShareFilePreview({
                     <div className="absolute inset-0 flex items-center justify-center z-10">
                       {renderOfficeFallback('Excel 加载失败')}
                     </div>
-                  ) : excelHtml ? (
+                  ) : (
                     <div
-                      className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4"
-                      style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
-                      dangerouslySetInnerHTML={{ __html: excelHtml }}
+                      ref={excelContainerRef}
+                      className="w-full h-full overflow-auto bg-white dark:bg-gray-900"
                     />
-                  ) : null}
-                </>
+                  )}
+                </div>
               ) : isPpt ? (
                 <>
                   {pptLoading && !pptUseOnlineViewer && (
@@ -1515,51 +1563,64 @@ export function ShareFilePreview({
               )}
             </div>
           ) : isEpub ? (
-            <div className="w-full h-full flex flex-col relative">
+            <div className="w-full h-full flex relative">
               {epubLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-20">
                   <div className="text-muted-foreground text-sm">正在加载电子书...</div>
                 </div>
               )}
-              {epubBook ? (
-                <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900">
-                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                    <span className="text-sm font-medium truncate">{epubBook.title}</span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => loadEpubChapter(epubCurrentChapter - 1)}
-                        disabled={epubCurrentChapter <= 0}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <span className="text-xs text-muted-foreground">
-                        {epubCurrentChapter + 1} / {epubBook.chapters.length}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => loadEpubChapter(epubCurrentChapter + 1)}
-                        disabled={epubCurrentChapter >= epubBook.chapters.length - 1}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+              {epubShowToc && epubToc.length > 0 && (
+                <div className="w-64 border-r border-border bg-muted/30 flex flex-col">
+                  <div className="p-3 border-b border-border">
+                    <span className="text-sm font-medium">目录</span>
                   </div>
-                  <div
-                    className="flex-1 overflow-auto p-6 prose dark:prose-invert max-w-none"
-                    style={{ fontSize: `${zoomLevel}%` }}
-                    dangerouslySetInnerHTML={{ __html: epubContent }}
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                  <div className="flex-1 overflow-y-auto p-2">
+                    {epubToc.map((item, index) => (
+                      <button
+                        key={index}
+                        onClick={() => epubGoTo(item.href)}
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-muted transition-colors truncate"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
+              <div className="flex-1 flex flex-col">
+                <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEpubShowToc(!epubShowToc)}
+                    className="text-xs"
+                  >
+                    {epubShowToc ? '隐藏目录' : '显示目录'}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {epubTotalPages > 0 ? `位置 ${epubCurrentPage}/${epubTotalPages}` : ''}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={epubPrevPage}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={epubNextPage}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div id="epub-viewer-share" className="flex-1 overflow-hidden" />
+              </div>
             </div>
           ) : null}
         </div>
