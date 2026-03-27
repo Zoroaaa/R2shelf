@@ -416,7 +416,12 @@ jobs:
 
 ### 手动触发部署
 
-如需手动触发后端部署，可以在 GitHub Actions 页面点击「Run workflow」按钮（需要在工作流中添加 `workflow_dispatch` 触发器）。
+后端部署支持手动触发：
+
+1. 进入 GitHub 仓库 → Actions 标签页
+2. 选择「Deploy API to Cloudflare Workers」工作流
+3. 点击「Run workflow」按钮
+4. 选择分支后点击绿色「Run workflow」按钮
 
 ---
 
