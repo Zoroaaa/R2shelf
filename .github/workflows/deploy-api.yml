@@ -8,6 +8,7 @@ on:
       - 'apps/api/**'
       - 'packages/shared/**'
       - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
